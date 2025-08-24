@@ -6,12 +6,16 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>662</width>
-    <height>436</height>
+    <width>870</width>
+    <height>722</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>xModelGen</string>
+  </property>
+  <property name="windowIcon">
+   <iconset resource="xmodel_gen.qrc">
+    <normaloff>:/xmodel_gen/xmodel_gen.png</normaloff>:/xmodel_gen/xmodel_gen.png</iconset>
   </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QVBoxLayout" name="verticalLayout">
@@ -26,27 +30,55 @@
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
       </property>
-      <property name="opaqueResize">
-       <bool>true</bool>
-      </property>
-      <property name="handleWidth">
-       <number>5</number>
-      </property>
-      <property name="childrenCollapsible">
-       <bool>false</bool>
-      </property>
-      <widget class="QListWidget" name="listWidgetNodes">
+      <widget class="QTableWidget" name="tableWidgetNodes">
        <property name="sizePolicy">
         <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
        </property>
+       <column>
+        <property name="text">
+         <string>X</string>
+        </property>
+       </column>
+       <column>
+        <property name="text">
+         <string>Y</string>
+        </property>
+       </column>
+       <column>
+        <property name="text">
+         <string>Node</string>
+        </property>
+       </column>
       </widget>
-      <widget class="QTableView" name="tableViewDraw">
-       <property name="showGrid">
-        <bool>false</bool>
+      <widget class="QScrollArea" name="scrollArea">
+       <property name="widgetResizable">
+        <bool>true</bool>
        </property>
+       <widget class="QWidget" name="scrollAreaWidgetContents">
+        <property name="geometry">
+         <rect>
+          <x>0</x>
+          <y>0</y>
+          <width>437</width>
+          <height>628</height>
+         </rect>
+        </property>
+        <layout class="QHBoxLayout" name="horizontalLayout">
+         <item>
+          <widget class="BoxGraphicsView" name="boxView">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+             <horstretch>0</horstretch>
+             <verstretch>1</verstretch>
+            </sizepolicy>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
       </widget>
      </widget>
     </item>
@@ -55,7 +87,7 @@
       <item>
        <widget class="QLabel" name="label">
         <property name="sizePolicy">
-         <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
+         <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
@@ -68,13 +100,16 @@
       <item>
        <widget class="QSpinBox" name="spinBox_wireSize">
         <property name="sizePolicy">
-         <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
+         <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
         <property name="minimum">
          <number>1</number>
+        </property>
+        <property name="maximum">
+         <number>1000</number>
         </property>
         <property name="singleStep">
          <number>5</number>
@@ -87,7 +122,7 @@
       <item>
        <widget class="QPushButton" name="pushButton_autoWire">
         <property name="sizePolicy">
-         <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
+         <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
@@ -119,15 +154,15 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>662</width>
-     <height>21</height>
+     <width>870</width>
+     <height>22</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
     <property name="title">
      <string>File</string>
     </property>
-    <addaction name="actionOpen_DXF"/>
+    <addaction name="actionOpen_dxf"/>
     <addaction name="actionExport_xModel"/>
     <addaction name="separator"/>
     <addaction name="actionExit"/>
@@ -138,11 +173,23 @@
     </property>
     <addaction name="actionAutoWire"/>
    </widget>
+   <widget class="QMenu" name="menuTools">
+    <property name="title">
+     <string>Tools</string>
+    </property>
+    <addaction name="actionView_Logs"/>
+    <addaction name="actionAbout"/>
+   </widget>
    <addaction name="menuFile"/>
    <addaction name="menuWire"/>
+   <addaction name="menuTools"/>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
-  <action name="actionOpen_DXF">
+  <action name="actionOpen_dxf">
+   <property name="icon">
+    <iconset resource="xmodel_gen.qrc">
+     <normaloff>:/xmodel_gen/icons/page_white_h.png</normaloff>:/xmodel_gen/icons/page_white_h.png</iconset>
+   </property>
    <property name="text">
     <string>Open DXF...</string>
    </property>
@@ -153,6 +200,10 @@
    </property>
   </action>
   <action name="actionExit">
+   <property name="icon">
+    <iconset resource="xmodel_gen.qrc">
+     <normaloff>:/xmodel_gen/icons/cross.png</normaloff>:/xmodel_gen/icons/cross.png</iconset>
+   </property>
    <property name="text">
     <string>Exit</string>
    </property>
@@ -162,8 +213,31 @@
     <string>AutoWire</string>
    </property>
   </action>
+  <action name="actionView_Logs">
+   <property name="icon">
+    <iconset resource="xmodel_gen.qrc">
+     <normaloff>:/xmodel_gen/icons/script.png</normaloff>:/xmodel_gen/icons/script.png</iconset>
+   </property>
+   <property name="text">
+    <string>View Logs</string>
+   </property>
+  </action>
+  <action name="actionAbout">
+   <property name="text">
+    <string>About</string>
+   </property>
+  </action>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
- <resources/>
+ <customwidgets>
+  <customwidget>
+   <class>BoxGraphicsView</class>
+   <extends>QGraphicsView</extends>
+   <header>boxgraphicsview.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources>
+  <include location="xmodel_gen.qrc"/>
+ </resources>
  <connections/>
 </ui>

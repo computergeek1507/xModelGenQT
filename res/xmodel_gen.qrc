@@ -1,5 +1,6 @@
 <RCC>
   <qresource prefix="xmodel_gen">
+    <file>xmodel_gen.png</file>
     <file>icons/pencil.png</file>
     <file>icons/pencil_add.png</file>
     <file>icons/pencil_delete.png</file>

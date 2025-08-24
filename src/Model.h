@@ -56,15 +56,15 @@ public:
         return std::nullopt;
     }
 
-    [[nodiscard]] std::optional< std::reference_wrapper< Node > > FindGridNode( int x, int y )
-    {
-        if( auto found{ std::find_if( m_nodes.begin(), m_nodes.end(), [ &x, &y ]( Node const& n ) { return n.GridX == x && n.GridY == y; } ) };
-            found != m_nodes.end() ) {
-            return *found;
-        }
-
-        return std::nullopt;
-    }
+    //[[nodiscard]] std::optional< std::reference_wrapper< Node > > FindGridNode( int x, int y )
+    //{
+    //    if( auto found{ std::find_if( m_nodes.begin(), m_nodes.end(), [ &x, &y ]( Node const& n ) { return n.GridX == x && n.GridY == y; } ) };
+    //        found != m_nodes.end() ) {
+    //        return *found;
+    //    }
+    //
+    //    return std::nullopt;
+    //}
 
     [[nodiscard]] std::optional< std::reference_wrapper< Node > > FindNodeNumber( int nodeNumber )
     {

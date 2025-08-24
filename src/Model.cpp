@@ -52,29 +52,29 @@ void Model::SetBoundingBox( int minX, int maxX, int minY, int maxY )
 
 void Model::ScaleNodesToGrid( int grid_width, int grid_heigth )
 {
-    int minX = INT_FAST32_MAX;
-    int maxX = 0;
-    int minY = INT_FAST32_MAX;
-    int maxY = 0;
-
-    for( auto const& node : m_nodes ) {
-        minX = std::min(node.X, minX);
-        maxX = std::max(node.X, maxX);
-        minY = std::min(node.Y, minY);
-        maxY = std::max(node.Y, maxY);
-    }
-
-    int width = std::abs(maxX - minX);
-    int height = std::abs(maxY - minY);
-    double scale_x = (double)width / grid_width;
-    double scale_y = (double)width / grid_heigth;
-
-    for( auto & node : m_nodes ) {
-        int new_x  = (double)( node.X - minX ) / scale_x;
-        int new_y  = (double)( node.Y - minY ) / scale_y;
-        node.GridX = new_x;
-        node.GridY = /*grid_heigth -*/ new_y;//screen Y is Top Most, so Flip?
-    }
+    //int minX = INT_FAST32_MAX;
+    //int maxX = 0;
+    //int minY = INT_FAST32_MAX;
+    //int maxY = 0;
+    //
+    //for( auto const& node : m_nodes ) {
+    //    minX = std::min(node.X, minX);
+    //    maxX = std::max(node.X, maxX);
+    //    minY = std::min(node.Y, minY);
+    //    maxY = std::max(node.Y, maxY);
+    //}
+    //
+    //int width = std::abs(maxX - minX);
+    //int height = std::abs(maxY - minY);
+    //double scale_x = (double)width / grid_width;
+    //double scale_y = (double)width / grid_heigth;
+    //
+    //for( auto & node : m_nodes ) {
+    //    int new_x  = (double)( node.X - minX ) / scale_x;
+    //    int new_y  = (double)( node.Y - minY ) / scale_y;
+    //    //node.GridX = new_x;
+    //    //node.GridY = /*grid_heigth -*/ new_y;//screen Y is Top Most, so Flip?
+    //}
 }
 
 void Model::ExportModel( std::string const& filename, int grid_width, int grid_heigth ) 
@@ -89,18 +89,18 @@ void Model::ExportModel( std::string const& filename, int grid_width, int grid_h
     std::string cm;
 
     for( int x = 0; x <= grid_width + 1; x++ ) {
-        for( int y = 0; y <= grid_heigth + 1; y++ ) {
-            std::string cell;
-            
-            if( auto node = FindGridNode( y, x ); node ) {
-                if( node->get().IsWired() ) {
-                    cell = std::to_string( node->get().NodeNumber );
-                } else {
-                    cell = "1";
-                }
-            }
-            cm += cell + ",";
-        }
+        //for( int y = 0; y <= grid_heigth + 1; y++ ) {
+        //    std::string cell;
+        //    
+        //    if( auto node = FindGridNode( y, x ); node ) {
+        //        if( node->get().IsWired() ) {
+        //            cell = std::to_string( node->get().NodeNumber );
+        //        } else {
+        //            cell = "1";
+        //        }
+        //    }
+        //    cm += cell + ",";
+        //}
         cm += ";";
     }
 
