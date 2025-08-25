@@ -33,7 +33,16 @@ public Q_SLOTS:
 	void on_actionAutoWire_triggered();
 	void on_actionView_Logs_triggered();
 
+    void on_pushButton_autoWire_clicked();
+
     void on_MouseSelectRectSignal();
+
+    void updateMousePosition(qreal, qreal);
+    void updateSelectRect(QRect rect);
+
+    void drawModel();
+
+    void UpdateRow(int row, Node const& _node);
 	
 private:
     Ui::MainWindow *m_ui;
@@ -47,10 +56,11 @@ private:
     std::unique_ptr<QSettings> m_settings{ nullptr };
     QString m_appdir;
     void Load_Dxf_Items();
-    void StartAutoWire(int wireGap);
+    void StartAutoWire(double wireGap);
     void RefreshNodes();
-    void drawPoint(QGraphicsScene& scene, double x, double y, double rad, QPen pen);
-    void drawLine(QGraphicsScene& scene, double x1, double y1, double x2, double y2, QPen pen);
+    void drawPoint(QGraphicsScene& scene, double x, double y, double rad, QColor color);
+    void drawLine(QGraphicsScene& scene, double x1, double y1, double x2, double y2, QColor color);
+    void drawTest(QGraphicsScene& scene, double x, double y, QString const& text, QColor color);
 };
 
 

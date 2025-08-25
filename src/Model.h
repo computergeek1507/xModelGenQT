@@ -7,15 +7,25 @@
 #include <optional>
 #include <cmath>
 
+#include <QRect>
+
 class Model
 {
 public:
 
     void ClearWiring();
 
+    void FindCloseNodes(double distance);
+
+    void ClearCloseNodes();
+
     void ClearNodes() { m_nodes.clear(); }
 
-    void ExportModel( std::string const& filename, int grid_width, int grid_heigth );
+    void ExportModel( std::string const& filename );
+
+    bool FindCustomModelScale(int scale) const;
+
+    static std::string ToCustomModel(const std::vector<std::vector<std::vector<int>>>& model);
 
     void SetBoundingBox( int minX, int maxX, int minY, int maxY );
 
@@ -24,6 +34,14 @@ public:
     void AddNode( Node _node );
 
     void SortNodes();
+
+    int FindNodeInBox(QRect rect);
+
+    bool areApproximatelyEqual(double a, double b, double epsilon = 1e-9) const
+    {
+        return std::abs(a - b) < epsilon;
+    }
+
 
     [[nodiscard]] std::optional< std::reference_wrapper< Node > > GetNode( int i )
     {
@@ -46,9 +64,14 @@ public:
 
     [[nodiscard]] size_t GetNodeCount() const { return m_nodes.size(); }
 
-    [[nodiscard]] std::optional< std::reference_wrapper< Node > > FindNode( int x, int y )
+    [[nodiscard]] std::optional< std::reference_wrapper< Node > > FindNode(double x, double y )
     {
-        if( auto found{ std::find_if( m_nodes.begin(), m_nodes.end(), [ &x, &y ]( Node const& n ) { return n.X == x && n.Y == y; } ) };
+        if( auto found{ std::find_if( m_nodes.begin(), m_nodes.end(), [ &x, &y, this]( Node const& n )
+            {
+                return areApproximatelyEqual(x , n.X) && areApproximatelyEqual(y , n.Y);
+                //return n.X == x && n.Y == y; 
+            } ) 
+            };
             found != m_nodes.end() ) {
             return *found;
         }
@@ -56,15 +79,7 @@ public:
         return std::nullopt;
     }
 
-    //[[nodiscard]] std::optional< std::reference_wrapper< Node > > FindGridNode( int x, int y )
-    //{
-    //    if( auto found{ std::find_if( m_nodes.begin(), m_nodes.end(), [ &x, &y ]( Node const& n ) { return n.GridX == x && n.GridY == y; } ) };
-    //        found != m_nodes.end() ) {
-    //        return *found;
-    //    }
-    //
-    //    return std::nullopt;
-    //}
+
 
     [[nodiscard]] std::optional< std::reference_wrapper< Node > > FindNodeNumber( int nodeNumber )
     {
@@ -76,11 +91,11 @@ public:
         return std::nullopt;
     }
 
-    [[nodiscard]] int FindNodeIndex( int x, int y ) const
+    [[nodiscard]] int FindNodeIndex(double x, double y) const
     {
         int i = 0;
-        for( auto const& node : m_nodes ) {
-            if( x == node.X && y == node.Y ) {
+        for (auto const& node : m_nodes) {
+            if (areApproximatelyEqual(x , node.X) && areApproximatelyEqual(y , node.Y)) {
                 return i;
             }
             i++;
@@ -88,7 +103,7 @@ public:
         return -1;
     }
 
-    void DeleteNode( int x, int y )
+    void DeleteNode(double x, double y )
     {
         int idx = FindNodeIndex( x, y );
         if( idx == -1 ) {
@@ -98,7 +113,7 @@ public:
         m_nodes.erase( m_nodes.begin() + idx );
     }
 
-    void SetNodeNumber( int x, int y, int node )
+    void SetNodeNumber(double x, double y, int node )
     {
         int idx = FindNodeIndex( x, y );
         if( idx == -1 ) {
@@ -121,7 +136,7 @@ public:
 private:
     std::vector<Node> m_nodes;
     std::string m_name;
-    int m_sizeX{0};
-    int m_sizeY{0};
+    //int m_sizeX{0};
+    //int m_sizeY{0};
 
 };

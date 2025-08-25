@@ -98,24 +98,18 @@
        </widget>
       </item>
       <item>
-       <widget class="QSpinBox" name="spinBox_wireSize">
+       <widget class="QDoubleSpinBox" name="doubleSpinBox_wireSize">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
-        <property name="minimum">
-         <number>1</number>
-        </property>
         <property name="maximum">
-         <number>1000</number>
-        </property>
-        <property name="singleStep">
-         <number>5</number>
+         <double>9999.989999999999782</double>
         </property>
         <property name="value">
-         <number>5</number>
+         <double>2.000000000000000</double>
         </property>
        </widget>
       </item>

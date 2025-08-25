@@ -19,6 +19,11 @@ BoxGraphicsScene::~BoxGraphicsScene()
 
 }
 
+void BoxGraphicsScene::mouseMoveEvent(QGraphicsSceneMouseEvent* mouseEvent)
+{ //y is negative due to graphics drawn from top left
+	emit mousePosition(mouseEvent->scenePos().x(), mouseEvent->scenePos().y());
+}
+
 void BoxGraphicsScene::mousePressEvent( QGraphicsSceneMouseEvent* mouseEvent )
 {
 	QGraphicsScene::mousePressEvent( mouseEvent );

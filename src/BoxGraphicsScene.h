@@ -16,6 +16,11 @@ public:
 Q_SIGNALS:
 	// void ShowProgress() const;
 	void AddDevice(QString path, QPointF scenePos);
+	void mousePosition(qreal, qreal);
+	void mouseDoubleClick(qreal, qreal);
+
+public slots:
+	void mouseMoveEvent(QGraphicsSceneMouseEvent* mouseEvent) override;
 
 protected:
 
