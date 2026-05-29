@@ -27,6 +27,9 @@ public:
     // Read a DXF file, build the model from it, and refresh the views.
     void loadDxf( QString const& fileName );
 
+    // Set the target hole diameter (mm) shown in the spin box.
+    void setHoleDiameter( double mm );
+
 public Q_SLOTS:
 
     void on_actionOpen_DXF_triggered();

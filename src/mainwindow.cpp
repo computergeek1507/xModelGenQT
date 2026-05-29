@@ -73,6 +73,11 @@ void MainWindow::loadDxf( QString const& fileName )
     detectHoles();
 }
 
+void MainWindow::setHoleDiameter( double mm )
+{
+    ui->doubleSpinBox_holeDia->setValue( mm );
+}
+
 double MainWindow::mmToDrawingUnits( double mm ) const
 {
     if( !m_dxf_data ) {
