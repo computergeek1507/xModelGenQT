@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -31,7 +32,9 @@ struct Node
 
     [[nodiscard]] std::string GetText() const
     {
-        return "Node:" + std::to_string( NodeNumber ) + "     X:" + std::to_string( X ) + "     Y:" + std::to_string( Y );
+        return "Node:" + std::to_string( NodeNumber )
+             + "     X:" + std::to_string( static_cast<long long>( std::llround( X ) ) )
+             + "     Y:" + std::to_string( static_cast<long long>( std::llround( Y ) ) );
     }
 
     void ClearWiring()
