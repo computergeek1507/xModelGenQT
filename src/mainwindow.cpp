@@ -104,9 +104,7 @@ void MainWindow::detectHoles()
     std::vector< hole_finder::Hole > const holes =
         hole_finder::FindHoles( *m_dxf_data, holeDiameter, radiusTolerance );
 
-    // Node coordinates are stored in millimetres so the integer Node grid keeps
-    // sub-unit holes distinct (rounding inch coordinates to whole inches merged
-    // holes closer than 1 inch).
+    // Node coordinates are stored in millimetres (Node uses double coordinates).
     double mmPerUnit = dxf_units::MillimetersPerUnit( m_dxf_data->insUnits );
     if( mmPerUnit <= 0.0 ) {
         mmPerUnit = 1.0;  // unknown units: treat the drawing as millimetres
@@ -115,8 +113,8 @@ void MainWindow::detectHoles()
     auto model = std::make_unique< Model >();
     model->SetName( m_modelName );
     for( auto const& hole : holes ) {
-        model->AddNode( Node( static_cast< int >( std::lround( hole.x * mmPerUnit ) ),
-                              static_cast< int >( std::lround( hole.y * mmPerUnit ) ) ) );
+        model->AddNode(
+            Node( hole.x * mmPerUnit, hole.y * mmPerUnit, holeDiameterMm * 0.5 ) );
     }
 
     spdlog::info( "Found {} hole candidates ({} unique nodes) for {}mm holes",
@@ -254,25 +252,7 @@ int MainWindow::nearestNodeIndex( double sceneX, double sceneY ) const
 double MainWindow::nodeDisplayRadius() const
 {
     // Draw markers at the detected hole radius so they match the real holes.
-    if( m_nodeRadius > 0.0 ) {
-        return m_nodeRadius;
-    }
-
-    // Fallback: a small fraction of the model's extent.
-    if( m_model && m_model->GetNodeCount() > 0 ) {
-        int minX = INT_MAX, maxX = INT_MIN, minY = INT_MAX, maxY = INT_MIN;
-        for( Node const& n : m_model->GetNodes() ) {
-            minX = std::min( minX, n.X );
-            maxX = std::max( maxX, n.X );
-            minY = std::min( minY, n.Y );
-            maxY = std::max( maxY, n.Y );
-        }
-        double const extent = std::max( maxX - minX, maxY - minY );
-        if( extent > 0.0 ) {
-            return std::max( extent * 0.01, 1.0 );
-        }
-    }
-    return 1.0;
+    return m_nodeRadius > 0.0 ? m_nodeRadius : 1.0;
 }
 
 bool MainWindow::eventFilter( QObject* watched, QEvent* event )

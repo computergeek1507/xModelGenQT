@@ -6,7 +6,7 @@
 
 #include <algorithm>
 
-void AutoWire::WireModel( int startX, int startY )
+void AutoWire::WireModel( double startX, double startY )
 {
     std::vector< Node > const& nodes = m_model->GetNodes();
 

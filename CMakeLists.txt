@@ -54,7 +54,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Network PrintSupp
 configure_file(src/config.h.in ${CMAKE_CURRENT_SOURCE_DIR}/src/config.h)
 configure_file(res/installer/xmodel_gen.iss.in ${CMAKE_CURRENT_SOURCE_DIR}/res/installer/xmodel_gen.iss)
 
-file( GLOB_RECURSE BASE_SRC src/*cpp src/*h)
+file( GLOB_RECURSE BASE_SRC src/*cpp src/*h dxflib/src/*h dxflib/src/*cpp)
 file( GLOB_RECURSE BASE_RES res/*ui res/*qrc)
 
 # The bundled dxflib ships example programs (each with their own main()); keep
@@ -99,7 +99,7 @@ endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::PrintSupport spdlog::spdlog nlohmann_json::nlohmann_json)
 
 # dxflib headers (dl_dxf.h, dl_entities.h, ...) used by src/dxf.
-target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/dxflib/src)
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/dxflib/src)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER my.example.com

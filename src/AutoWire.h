@@ -14,7 +14,7 @@ public:
         m_model( model ), m_wireGap( wireGap )
     { }
 
-    void WireModel( int startX, int startY );
+    void WireModel( double startX, double startY );
 
     [[nodiscard]] bool GetWorked() { return m_worked; }
 
