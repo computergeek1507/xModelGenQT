@@ -1,0 +1,58 @@
+name: Build installer & release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '5.15.2'
+          host: windows
+          target: desktop
+          arch: win64_msvc2019_64
+
+      - name: Configure
+        # Qt 5.15.2 uses stdext::checked_array_iterator, which the newest MSVC
+        # STL removed, so build with the v142 toolset.
+        run: >
+          cmake -S . -B cmake_vs -G "Visual Studio 17 2022" -A x64 -T v142
+          -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+
+      - name: Build (Release)
+        run: cmake --build cmake_vs --config Release --target xmodel_gen
+
+      - name: Deploy Qt
+        run: |
+          & "$env:QT_ROOT_DIR\bin\windeployqt.exe" --release --no-compiler-runtime cmake_vs\Release\xmodel_gen.exe
+
+      - name: Build installer
+        run: |
+          choco install innosetup --no-progress -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" res\installer\xmodel_gen.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xmodel_gen-installer
+          path: res/installer/output/*.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: res/installer/output/*.exe
+          generate_release_notes: true
