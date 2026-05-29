@@ -21,7 +21,7 @@ public:
 
     void ClearNodes() { m_nodes.clear(); }
 
-    void ExportModel( std::string const& filename );
+    bool ExportModel( std::string const& filename );
 
     bool FindCustomModelScale(int scale) const;
 

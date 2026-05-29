@@ -68,6 +68,10 @@ int main(int argc, char *argv[])
             w.autoWireFromFirst(gap);
         }
     }
+    // Optional 4th arg: export the (wired) model to this .xmodel path.
+    if (args.size() > 4) {
+        w.exportModelTo(args.at(4));
+    }
 
     int const rc = a.exec();
 

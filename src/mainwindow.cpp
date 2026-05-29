@@ -278,7 +278,44 @@ bool MainWindow::eventFilter( QObject* watched, QEvent* event )
 
 void MainWindow::on_actionExport_xModel_triggered()
 {
-	
+    if( !m_model || m_model->GetNodeCount() == 0 ) {
+        QMessageBox::information( this, tr( "Export xModel" ),
+                                 tr( "There is nothing to export. Open a DXF first." ) );
+        return;
+    }
+
+    bool wired = false;
+    for( Node const& n : m_model->GetNodes() ) {
+        if( n.IsWired() ) {
+            wired = true;
+            break;
+        }
+    }
+    if( !wired
+        && QMessageBox::question(
+               this, tr( "Export xModel" ),
+               tr( "The model has not been auto-wired, so the pixel order will just "
+                   "follow detection order. Export anyway?" ) )
+               != QMessageBox::Yes ) {
+        return;
+    }
+
+    QString fileName = QFileDialog::getSaveFileName(
+        this, tr( "Export xModel" ),
+        QString::fromStdString( m_model->GetName() ) + ".xmodel",
+        tr( "xLights model (*.xmodel);;All files (*)" ) );
+    if( fileName.isEmpty() ) {
+        return;  // user cancelled
+    }
+
+    if( m_model->ExportModel( fileName.toStdString() ) ) {
+        spdlog::info( "Exported xmodel: {}", fileName.toStdString() );
+        statusBar()->showMessage( tr( "Exported \"%1\"." ).arg( QFileInfo( fileName ).fileName() ) );
+    } else {
+        spdlog::error( "Failed to export xmodel: {}", fileName.toStdString() );
+        QMessageBox::warning( this, tr( "Export xModel" ),
+                              tr( "Failed to write \"%1\"." ).arg( fileName ) );
+    }
 }
 
 void MainWindow::on_actionExit_triggered()
@@ -365,6 +402,15 @@ void MainWindow::autoWireFromFirst( double wireGapMm )
     if( m_model && m_model->GetNodeCount() > 0 ) {
         wireFrom( 0, wireGapMm );
     }
+}
+
+void MainWindow::exportModelTo( QString const& fileName )
+{
+    if( !m_model || m_model->GetNodeCount() == 0 ) {
+        return;
+    }
+    bool const ok = m_model->ExportModel( fileName.toStdString() );
+    spdlog::info( "CLI export ({}) -> {}", ok, fileName.toStdString() );
 }
 
 void MainWindow::runAutoWire( double wireGapMm )

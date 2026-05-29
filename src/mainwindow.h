@@ -33,6 +33,9 @@ public:
     // Wire the loaded model starting from the first node (for CLI/testing).
     void autoWireFromFirst( double wireGapMm );
 
+    // Export the current model to an .xmodel file (for CLI/testing).
+    void exportModelTo( QString const& fileName );
+
 public Q_SLOTS:
 
     void on_actionOpen_DXF_triggered();

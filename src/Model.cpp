@@ -12,6 +12,8 @@
 
 #include <algorithm>
 #include <fstream>
+#include <limits>
+#include <unordered_set>
 #include "model_utils.h"
 
  void Model::AddNode( Node _node )
@@ -157,115 +159,125 @@ std::string Model::ToCustomModel(const std::vector<std::vector<std::vector<int>>
 }
 
 
-void Model::ExportModel( std::string const& filename ) 
+bool Model::ExportModel( std::string const& filename )
 {
-    float minsx = 99999;
-    float minsy = 99999;
-    float maxsx = -1;
-    float maxsy = -1;
-
-    size_t nodeCount = GetNodeCount();
-    for (size_t i = 0; i < nodeCount; ++i) {
-        float Sbufx = m_nodes[i].X;
-        float Sbufy = m_nodes[i].Y;
-        if (Sbufx < minsx)
-            minsx = Sbufx;
-        if (Sbufx > maxsx)
-            maxsx = Sbufx;
-        if (Sbufy < minsy)
-            minsy = Sbufy;
-        if (Sbufy > maxsy)
-            maxsy = Sbufy;
+    size_t const nodeCount = GetNodeCount();
+    if( nodeCount == 0 ) {
+        return false;
     }
-    int scale = 1;
 
-    while (!FindCustomModelScale(scale)) {
-        ++scale;
-        if (scale > 100) { // I(Scott) am afraid of infinite while loops
-            scale = 1;
+    // Node coordinates are real-world positions (millimetres). Pick a grid pitch
+    // equal to the typical spacing between holes (median nearest-neighbour
+    // distance) so adjacent holes map to adjacent grid cells instead of producing
+    // a huge millimetre-resolution grid.
+    double pitch = 1.0;
+    if( nodeCount > 1 ) {
+        std::vector<double> nearest;
+        nearest.reserve( nodeCount );
+        for( size_t i = 0; i < nodeCount; ++i ) {
+            double best = std::numeric_limits<double>::max();
+            for( size_t j = 0; j < nodeCount; ++j ) {
+                if( i == j ) {
+                    continue;
+                }
+                double const d = model_utils::GetDistance( m_nodes[ i ], m_nodes[ j ] );
+                if( d > 0.0 && d < best ) {
+                    best = d;
+                }
+            }
+            if( best < std::numeric_limits<double>::max() ) {
+                nearest.push_back( best );
+            }
+        }
+        if( !nearest.empty() ) {
+            std::sort( nearest.begin(), nearest.end() );
+            pitch = nearest[ nearest.size() / 2 ];  // median spacing
+        }
+    }
+    if( !( pitch > 0.0 ) ) {
+        pitch = 1.0;
+    }
+
+    double minx = m_nodes[ 0 ].X, maxx = m_nodes[ 0 ].X;
+    double miny = m_nodes[ 0 ].Y, maxy = m_nodes[ 0 ].Y;
+    for( auto const& n : m_nodes ) {
+        minx = std::min( minx, n.X );
+        maxx = std::max( maxx, n.X );
+        miny = std::min( miny, n.Y );
+        maxy = std::max( maxy, n.Y );
+    }
+
+    // Refine the pitch until every hole lands on its own grid cell (holes that are
+    // slightly off a regular grid can otherwise collide and be lost), while keeping
+    // the grid a sensible size.
+    auto hasCollision = [ & ]( double p ) {
+        std::unordered_set<long long> seen;
+        for( auto const& n : m_nodes ) {
+            long long const gx  = std::lround( ( n.X - minx ) / p );
+            long long const gy  = std::lround( ( n.Y - miny ) / p );
+            long long const key = ( gx << 32 ) ^ ( gy & 0xffffffffLL );
+            if( !seen.insert( key ).second ) {
+                return true;
+            }
+        }
+        return false;
+    };
+    for( int attempt = 0; attempt < 12; ++attempt ) {
+        long long const sx = std::lround( ( maxx - minx ) / pitch ) + 1;
+        long long const sy = std::lround( ( maxy - miny ) / pitch ) + 1;
+        if( !hasCollision( pitch ) || sx * sy > 4'000'000 ) {
             break;
         }
-    }
-    int minx = std::floor(minsx);
-    int miny = std::floor(minsy);
-    int maxx = std::ceil(maxsx);
-    int maxy = std::ceil(maxsy);
-    int sizex = maxx - minx + 1;
-    int sizey = maxy - miny + 1;
-
-    sizex *= scale;
-    sizey *= scale;
-
-    int* nodeLayout = (int*)malloc(sizey * sizex * sizeof(int));
-    memset(nodeLayout, 0xFF, sizey * sizex * sizeof(int));
-
-    for (int i = 0; i < nodeCount; ++i) {
-        int x = (m_nodes[i].X - minx) * scale;
-        int y = (sizey - ((m_nodes[i].Y - miny) * scale) - 1);
-        nodeLayout[y * sizex + x] = i + 1;
+        pitch *= 0.5;  // finer grid
     }
 
-    std::vector<std::vector<std::vector<int>>> data;
+    auto gridX = [ & ]( double x ) { return static_cast<int>( std::lround( ( x - minx ) / pitch ) ); };
+    auto gridY = [ & ]( double y ) { return static_cast<int>( std::lround( ( y - miny ) / pitch ) ); };
 
-    auto layer = std::vector<std::vector<int>>();
-    for (int y = 0; y < sizey; ++y) {
-        std::vector<int> row;
-        for (int x = 0; x < sizex; ++x) {
-            row.push_back(nodeLayout[y * sizex + x]);
+    int const sizex = gridX( maxx ) + 1;
+    int const sizey = gridY( maxy ) + 1;
+
+    // -1 marks an empty cell; ToCustomModel renders those as blanks.
+    std::vector<std::vector<int>> layer( sizey, std::vector<int>( sizex, -1 ) );
+    for( size_t i = 0; i < nodeCount; ++i ) {
+        int const gx  = gridX( m_nodes[ i ].X );
+        int const gy  = gridY( m_nodes[ i ].Y );
+        int const row = sizey - 1 - gy;  // xLights lists the top row first
+        // Use the wiring order if the model has been auto-wired.
+        int const value = m_nodes[ i ].NodeNumber > 0 ? m_nodes[ i ].NodeNumber
+                                                       : static_cast<int>( i + 1 );
+        if( row >= 0 && row < sizey && gx >= 0 && gx < sizex ) {
+            layer[ row ][ gx ] = value;
         }
-        layer.push_back(row);
     }
-    data.push_back(layer);
 
-    free(nodeLayout);
+    std::vector<std::vector<std::vector<int>>> data{ layer };
 
-    //ScaleNodesToGrid(grid_width, grid_heigth);
     std::ofstream f;
     f.open( filename.c_str(), std::ios::out );
     if( !f.good() ) {
-        return;
+        return false;
     }
 
-    //std::string cm;
-    //
-    //for( int x = 0; x <= sizey + 1; x++ ) {
-    //   for( int y = 0; y <= sizex + 1; y++ ) {
-    //        std::string cell;
-    //        
-    //        //if( auto node = FindGridNode( y, x ); node ) {
-    //        //    if( node->get().IsWired() ) {
-    //        //        cell = std::to_string( node->get().NodeNumber );
-    //        //    } else {
-    //        //        cell = "1";
-    //        //    }
-    //        //}
-    //        cm += cell + ",";
-    //    }
-    //    cm += ";";
-    //}
-    //
-    //cm.pop_back();//remove last ";"
-
-    f << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<custommodel \n" ;
+    f << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<custommodel \n";
     f << "name=\"" << m_name << "\" ";
-    f << "parm1=\"" << std::to_string(sizex) << "\" ";
-    f << "parm2=\"" << std::to_string(sizey) << "\" ";
+    f << "parm1=\"" << std::to_string( sizex ) << "\" ";
+    f << "parm2=\"" << std::to_string( sizey ) << "\" ";
     f << "Depth=\"1\" ";
     f << "StringType=\"RGB Nodes\" ";
-    f <<  "Transparency=\"0\" ";
-    f <<  "PixelSize=\"2\" ";
-    f <<  "ModelBrightness=\"\" ";
-    f <<  "Antialias=\"1\" ";
-    f <<  "StrandNames=\"\" ";
-    f <<  "NodeNames=\"\" ";
-
-    f <<  "CustomModel=\"";
-    //f <<  cm ;
-    f << Model::ToCustomModel(data);
-    f <<  "\" ";
+    f << "Transparency=\"0\" ";
+    f << "PixelSize=\"2\" ";
+    f << "ModelBrightness=\"\" ";
+    f << "Antialias=\"1\" ";
+    f << "StrandNames=\"\" ";
+    f << "NodeNames=\"\" ";
+    f << "CustomModel=\"";
+    f << Model::ToCustomModel( data );
+    f << "\" ";
     f << "SourceVersion=\"2025.8\" ";
-    f <<  " >\n";
-    f <<  "</custommodel>";
+    f << " >\n";
+    f << "</custommodel>";
 
     f.close();
+    return true;
 }
