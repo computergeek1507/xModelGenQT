@@ -1,0 +1,16 @@
+# Build directories
+/build*/
+/cmake_vs/
+/debug/
+/.vs/
+build-*/
+
+# CMake-generated files
+/src/config.h
+/res/installer/xmodel_gen.iss
+
+# Duplicate extracted dependency (the library lives under src/dxflib)
+/dxflib-3.17.0-src/
+
+# Stray generated project file
+/xModelGen.vcxproj

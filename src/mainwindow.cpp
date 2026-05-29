@@ -1,499 +1,392 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
-#include "config.h"
-
-#include "spdlog/spdlog.h"
-
-#include "spdlog/sinks/qt_sinks.h"
-#include "spdlog/sinks/rotating_file_sink.h"
-
-#include "BoxGraphicsScene.h"
-
-#include "Model.h"
 #include "AutoWire.h"
-
 #include "dxf/dxf_reader.h"
+#include "dxf/dxf_units.h"
+#include "dxf/hole_finder.h"
 
-#include <QMessageBox>
-#include <QDesktopServices>
-#include <QSettings>
+#include <QBrush>
 #include <QFileDialog>
-#include <QStandardPaths>
-#include <QOperatingSystemVersion>
-#include <QProgressDialog>
+#include <QFileInfo>
+#include <QGraphicsEllipseItem>
+#include <QGraphicsScene>
+#include <QGraphicsSimpleTextItem>
+#include <QInputDialog>
+#include <QListWidget>
+#include <QMessageBox>
+#include <QMouseEvent>
+#include <QPen>
 
-#include <filesystem>
-#include <utility>
-#include <fstream>
-#include <sstream>
+#include <spdlog/spdlog.h>
 
-enum class NodeColumns
-{
-    X = 0,
-	Y,
-	NodeNumber,
-    LASTENTRY
-};
+#include <algorithm>
+#include <climits>
+#include <cmath>
+#include <limits>
+#include <memory>
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
-    m_ui(new Ui::MainWindow)
+    ui(new Ui::MainWindow)
 {
-    QCoreApplication::setApplicationName(PROJECT_NAME);
-	QCoreApplication::setApplicationVersion(PROJECT_VER);
-	m_ui->setupUi(this);
-
-	auto const log_name{ "log.txt" };
-
-	m_appdir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-	std::filesystem::create_directory(m_appdir.toStdString());
-	QString logdir = m_appdir + "/log/";
-	std::filesystem::create_directory(logdir.toStdString());
-
-	try
-	{
-		auto file{ std::string(logdir.toStdString() + log_name) };
-		auto rotating = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(file, 1024 * 1024, 5, false);
-
-		m_logger = std::make_shared<spdlog::logger>("box_design", rotating);
-		m_logger->flush_on(spdlog::level::debug);
-		m_logger->set_level(spdlog::level::debug);
-		m_logger->set_pattern("[%D %H:%M:%S] [%L] %v");
-		spdlog::register_logger(m_logger);
-	}
-	catch (std::exception& /*ex*/)
-	{
-		QMessageBox::warning(this, "Logger Failed", "Logger Failed To Start.");
-	}
-
-	setWindowTitle(windowTitle() + " v" + PROJECT_VER);
-
-	m_settings = std::make_unique< QSettings>(m_appdir + "/settings.ini", QSettings::IniFormat);
-
-	m_boxScene = new BoxGraphicsScene(this);
-	//connect(m_boxScene, &BoxGraphicsScene::AddDevice, this, &MainWindow::OnAddDevice, Qt::QueuedConnection);
-
-	//ui.graphicsView->setScene(&pageScene);
-	m_ui->boxView->setScene(m_boxScene);// = new QGraphicsView(imageScene);
-
-	m_ui->splitter->setStretchFactor(0, 1);
-	m_ui->splitter->setStretchFactor(1, 5);
-
-    connect(m_boxScene, &BoxGraphicsScene::mousePosition, this, &MainWindow::updateMousePosition);
-    connect(m_ui->boxView, &BoxGraphicsView::MouseSelectRectSignal, this, &MainWindow::updateSelectRect);
+    ui->setupUi(this);
 }
 
 MainWindow::~MainWindow()
 {
-    delete m_ui;
+    delete ui;
 }
 
-void MainWindow::on_actionOpen_dxf_triggered()
+void MainWindow::on_actionOpen_DXF_triggered()
 {
-	QString openFileName =
-		QFileDialog::getOpenFileName(this, "Open DXF File", 
-			QStandardPaths::writableLocation(QStandardPaths::DesktopLocation),
-			"DXF File (*.dxf)");
+    QString const fileName = QFileDialog::getOpenFileName(
+        this, tr( "Open DXF" ), QString(), tr( "DXF files (*.dxf);;All files (*)" ) );
+    if( fileName.isEmpty() ) {
+        return;  // user cancelled
+    }
 
-	if (!openFileName.isEmpty())
-	{
-		dxf_reader reader;
-		if (reader.openFile(openFileName.toStdString())) {
-			m_dxf_data = reader.moveData();
-			Load_Dxf_Items();
-            RefreshNodes();
-            statusBar()->showMessage(QString("%1 Nodes Found").arg(m_model->GetNodeCount()));
-		}
-		else {
-            statusBar()->showMessage("Failed to Read DXF: " + openFileName);
-		}
-	}
+    loadDxf( fileName );
+}
+
+void MainWindow::loadDxf( QString const& fileName )
+{
+    spdlog::info( "Opening DXF: {}", fileName.toStdString() );
+
+    dxf_reader reader;
+    if( !reader.openFile( fileName.toStdString() ) ) {
+        spdlog::error( "Failed to read DXF: {}", fileName.toStdString() );
+        QMessageBox::warning( this, tr( "Open DXF" ),
+                              tr( "Failed to read \"%1\"." ).arg( fileName ) );
+        return;
+    }
+
+    m_dxf_data = reader.moveData();
+    m_modelName = QFileInfo( fileName ).baseName().toStdString();
+    spdlog::debug( "DXF model-space: {} circles, {} arcs, {} polylines, {} lines, {} inserts; "
+                   "{} blocks (units code {})",
+                   m_dxf_data->model.circles.size(), m_dxf_data->model.arcs.size(),
+                   m_dxf_data->model.polylines.size(), m_dxf_data->model.lines.size(),
+                   m_dxf_data->model.inserts.size(), m_dxf_data->blocks.size(),
+                   m_dxf_data->insUnits );
+
+    detectHoles();
+}
+
+void MainWindow::setHoleDiameter( double mm )
+{
+    ui->doubleSpinBox_holeDia->setValue( mm );
+}
+
+double MainWindow::mmToDrawingUnits( double mm ) const
+{
+    if( !m_dxf_data ) {
+        return mm;
+    }
+    double const du =
+        dxf_units::ToDrawingUnits( mm, dxf_units::Millimeters, m_dxf_data->insUnits );
+    return du < 0.0 ? mm : du;  // unknown units: treat the drawing as millimeters
+}
+
+void MainWindow::detectHoles()
+{
+    if( !m_dxf_data ) {
+        return;
+    }
+
+    // The target hole diameter is a real-world size (mm) from the spin box, plus a
+    // fixed +/-0.5mm band on the radius (i.e. +/-1mm on the diameter). Detection runs
+    // in the file's drawing units; block references are expanded to world space.
+    double const holeDiameterMm  = ui->doubleSpinBox_holeDia->value();
+    double const holeDiameter    = mmToDrawingUnits( holeDiameterMm );
+    double const radiusTolerance = mmToDrawingUnits( 0.5 );
+
+    std::vector< hole_finder::Hole > const holes =
+        hole_finder::FindHoles( *m_dxf_data, holeDiameter, radiusTolerance );
+
+    // Node coordinates are stored in millimetres (Node uses double coordinates).
+    double mmPerUnit = dxf_units::MillimetersPerUnit( m_dxf_data->insUnits );
+    if( mmPerUnit <= 0.0 ) {
+        mmPerUnit = 1.0;  // unknown units: treat the drawing as millimetres
+    }
+
+    auto model = std::make_unique< Model >();
+    model->SetName( m_modelName );
+    for( auto const& hole : holes ) {
+        model->AddNode(
+            Node( hole.x * mmPerUnit, hole.y * mmPerUnit, holeDiameterMm * 0.5 ) );
+    }
+
+    spdlog::info( "Found {} hole candidates ({} unique nodes) for {}mm holes",
+                  holes.size(), model->GetNodeCount(), holeDiameterMm );
+
+    m_model          = std::move( model );
+    m_startNodeIndex = -1;          // selection no longer valid for the new node set
+    m_nodeRadius     = holeDiameterMm * 0.5;  // marker radius in mm (node coords are mm)
+
+    refreshModelView();
+
+    if( m_model->GetNodeCount() == 0 ) {
+        statusBar()->showMessage(
+            tr( "No ~%1mm holes found. Adjust the hole diameter and try again." )
+                .arg( holeDiameterMm ) );
+    } else {
+        statusBar()->showMessage( tr( "Found %1 holes (~%2mm)." )
+                                      .arg( static_cast< int >( m_model->GetNodeCount() ) )
+                                      .arg( holeDiameterMm ) );
+    }
+}
+
+void MainWindow::on_doubleSpinBox_holeDia_editingFinished()
+{
+    // Re-detect holes at the new target diameter on the already-loaded DXF.
+    if( m_dxf_data ) {
+        detectHoles();
+    }
+}
+
+void MainWindow::refreshModelView()
+{
+    ui->listWidgetNodes->clear();
+    m_nodeItems.clear();
+
+    if( !m_scene ) {
+        m_scene = std::make_unique< QGraphicsScene >();
+        ui->graphicsViewDraw->setScene( m_scene.get() );
+        // Watch the viewport so clicks/drags can pick the start node.
+        ui->graphicsViewDraw->viewport()->installEventFilter( this );
+    }
+    m_scene->clear();  // deletes the previous markers/labels
+
+    if( !m_model ) {
+        return;
+    }
+
+    std::vector< Node > const& nodes = m_model->GetNodes();
+
+    // Node list (shows wiring order once the model has been auto-wired).
+    for( Node const& node : nodes ) {
+        ui->listWidgetNodes->addItem( QString::fromStdString( node.GetText() ) );
+    }
+    spdlog::info( "Node list populated with {} items", ui->listWidgetNodes->count() );
+
+    // Draw one marker per node. DXF Y points up while scene Y points down, so
+    // negate Y to keep the drawing the right way up.
+    double const radius = nodeDisplayRadius();
+    QPen const   pen( Qt::darkGray );
+
+    m_nodeItems.reserve( nodes.size() );
+    for( Node const& node : nodes ) {
+        double const cx = node.X;
+        double const cy = -node.Y;
+
+        QGraphicsEllipseItem* item = m_scene->addEllipse(
+            cx - radius, cy - radius, radius * 2.0, radius * 2.0, pen, QBrush( Qt::yellow ) );
+        m_nodeItems.push_back( item );
+
+        // Once wired, label the node with its wiring number.
+        if( node.IsWired() ) {
+            QGraphicsSimpleTextItem* label =
+                m_scene->addSimpleText( QString::number( node.NodeNumber ) );
+            // Keep labels a constant on-screen size regardless of zoom.
+            label->setFlag( QGraphicsItem::ItemIgnoresTransformations, true );
+            label->setBrush( QBrush( Qt::black ) );
+            label->setZValue( 1.0 );
+            label->setPos( cx + radius, cy - radius );
+        }
+    }
+
+    updateNodeColors();
+
+    if( !m_scene->items().isEmpty() ) {
+        QRectF const bounds = m_scene->itemsBoundingRect();
+        m_scene->setSceneRect( bounds );
+        ui->graphicsViewDraw->fitInView( bounds, Qt::KeepAspectRatio );
+    }
+}
+
+void MainWindow::updateNodeColors()
+{
+    if( !m_model ) {
+        return;
+    }
+
+    std::vector< Node > const& nodes = m_model->GetNodes();
+    for( std::size_t i = 0; i < m_nodeItems.size() && i < nodes.size(); ++i ) {
+        if( !m_nodeItems[ i ] ) {
+            continue;
+        }
+
+        QColor color = Qt::yellow;            // unwired
+        if( nodes[ i ].IsWired() ) {
+            color = QColor( 90, 170, 255 );   // wired
+        }
+        if( static_cast< int >( i ) == m_startNodeIndex ) {
+            color = QColor( 40, 200, 80 );    // selected start node
+        }
+        m_nodeItems[ i ]->setBrush( QBrush( color ) );
+    }
+}
+
+int MainWindow::nearestNodeIndex( double sceneX, double sceneY ) const
+{
+    if( !m_model ) {
+        return -1;
+    }
+
+    std::vector< Node > const& nodes = m_model->GetNodes();
+    int    nearest     = -1;
+    double nearestDist = 0.0;
+    for( std::size_t i = 0; i < nodes.size(); ++i ) {
+        double const dx   = nodes[ i ].X - sceneX;
+        double const dy   = -nodes[ i ].Y - sceneY;  // markers are drawn at -Y
+        double const dist = dx * dx + dy * dy;
+        if( nearest == -1 || dist < nearestDist ) {
+            nearest     = static_cast< int >( i );
+            nearestDist = dist;
+        }
+    }
+    return nearest;
+}
+
+double MainWindow::nodeDisplayRadius() const
+{
+    // Draw markers at the detected hole radius so they match the real holes.
+    return m_nodeRadius > 0.0 ? m_nodeRadius : 1.0;
+}
+
+bool MainWindow::eventFilter( QObject* watched, QEvent* event )
+{
+    if( watched == ui->graphicsViewDraw->viewport() && m_model && !m_nodeItems.empty()
+        && ( event->type() == QEvent::MouseButtonPress
+             || event->type() == QEvent::MouseMove ) ) {
+        auto* mouse = static_cast< QMouseEvent* >( event );
+        if( mouse->buttons() & Qt::LeftButton ) {
+            QPointF const scenePos = ui->graphicsViewDraw->mapToScene( mouse->pos() );
+            int const     nearest  = nearestNodeIndex( scenePos.x(), scenePos.y() );
+            if( nearest >= 0 && nearest != m_startNodeIndex ) {
+                m_startNodeIndex = nearest;
+                updateNodeColors();
+                Node const& n = m_model->GetNodes().at( nearest );
+                statusBar()->showMessage(
+                    tr( "Start node: (%1, %2)" ).arg( n.X ).arg( n.Y ) );
+            }
+        }
+    }
+    return QMainWindow::eventFilter( watched, event );
 }
 
 void MainWindow::on_actionExport_xModel_triggered()
 {
-    if (!m_model) {
-        return;
-    }
-    else
-    {
-        statusBar()->showMessage("No Model Loaded");
-    }
-
-    QString openFileName =
-        QFileDialog::getSaveFileName(this, "Save xmodel File",
-            m_model->GetName().c_str(),
-            "xmodel File (*.xmodel)");
-
-    if (!openFileName.isEmpty())
-    {
-        m_model->ExportModel(openFileName.toStdString());
-    }
+	
 }
 
 void MainWindow::on_actionExit_triggered()
 {
-    close();
+	
 }
 
 void MainWindow::on_actionAutoWire_triggered()
 {
-    auto gap = m_ui->doubleSpinBox_wireSize->value();
-    StartAutoWire(gap);
-}
+    if( !m_model || m_model->GetNodeCount() == 0 ) {
+        QMessageBox::information( this, tr( "AutoWire" ),
+                                 tr( "There is no model loaded to wire. Open a DXF first." ) );
+        return;
+    }
 
-void MainWindow::on_actionView_Logs_triggered()
-{
-	QDesktopServices::openUrl(QUrl::fromLocalFile(m_appdir + "/log/"));
+    // Node coordinates are in millimetres, so ask for the gap in a real-world unit
+    // and convert it to millimetres.
+    struct UnitChoice { const char* label; int code; };
+    static UnitChoice const unitChoices[] = {
+        { "Millimeters", dxf_units::Millimeters },
+        { "Centimeters", dxf_units::Centimeters },
+        { "Inches",      dxf_units::Inches },
+        { "Feet",        dxf_units::Feet },
+    };
+
+    QStringList unitItems;
+    for( auto const& uc : unitChoices ) {
+        unitItems << tr( uc.label );
+    }
+
+    bool          ok       = false;
+    QString const unitName = QInputDialog::getItem( this, tr( "AutoWire" ),
+                                                    tr( "Wire gap units:" ), unitItems,
+                                                    0, false, &ok );
+    if( !ok ) {
+        return;  // user cancelled
+    }
+    int const realWorldUnit = unitChoices[ unitItems.indexOf( unitName ) ].code;
+
+    double const realWorldGap = QInputDialog::getDouble(
+        this, tr( "AutoWire" ),
+        tr( "Wire gap (%1):" ).arg( unitName ),
+        100.0, 0.0, std::numeric_limits< double >::max(), 3, &ok );
+    if( !ok ) {
+        return;  // user cancelled
+    }
+
+    runAutoWire( realWorldGap * dxf_units::MillimetersPerUnit( realWorldUnit ) );
 }
 
 void MainWindow::on_pushButton_autoWire_clicked()
 {
-   on_actionAutoWire_triggered();
+    // The spin box gives the wire gap directly in millimetres.
+    runAutoWire( ui->spinBox_wireSize->value() );
 }
 
-void MainWindow::on_MouseSelectRectSignal()
+void MainWindow::runAutoWire( double wireGapMm )
 {
-
-}
-
-void MainWindow::Load_Dxf_Items()
-{
-    if (!m_dxf_data) {
+    if( !m_model || m_model->GetNodeCount() == 0 ) {
+        QMessageBox::information( this, tr( "AutoWire" ),
+                                 tr( "There is no model loaded to wire. Open a DXF first." ) );
         return;
     }
 
-    std::filesystem::path p = m_dxf_data->filename;
-
-    std::string name = p.filename().replace_extension().string();
-
-    m_model = std::make_unique< Model >();
-
-    m_model->SetName(name);
-    //int minX = INT32_MAX;
-    //int minY = INT32_MAX;
-    //int maxX = 0;
-    //int maxY = 0;
-    /*
-    foreach( LwPolyline entity in _doc.LwPolylines ) {
-        if( !entity.IsClosed )
-            continue;
-        int count = entity.Vertexes.Count;
-        if( count == 10 ) {
-            double minNodeX = 10000000.0;
-            double minNodeY = 10000000.0;
-            double maxNodeX = 0.0;
-            double maxNodeY = 0.0;
-
-            foreach( LwPolylineVertex pt in entity.Vertexes ) {
-                if( pt.Position.X < minNodeX )
-                    minNodeX = pt.Position.X;
-                if( pt.Position.Y < minNodeY )
-                    minNodeY = pt.Position.Y;
-
-                if( pt.Position.X > maxNodeX )
-                    maxNodeX = pt.Position.X;
-                if( pt.Position.Y > maxNodeY )
-                    maxNodeY = pt.Position.Y;
-            }
-
-            double dist = maxNodeX - minNodeX;
-            if( 0.4 > dist || dist > 0.7 )
-                continue;
-
-            double centerX = ( maxNodeX + minNodeX ) / 2.0;
-            double centerY = ( maxNodeY + minNodeY ) / 2.0;
-
-            int t = count;
-
-            var newX = (int)( centerX * 2.0 );
-            var newY = (int)( centerY * 2.0 );
-
-            if( newX < minX )
-                minX = newX - 1;
-            if( newY < minY )
-                minY = newY - 1;
-
-            if( newX > maxX )
-                maxX = newX + 1;
-            if( newY > maxY )
-                maxY = newY + 1;
-
-            var newNode = new Node{
-                GridX = newX,
-                GridY = newY
-            };
-            _model.AddNode( newNode );
-        }
-    }
-    */
-
-    for (auto const& c : m_dxf_data->circles) {
-
-        //drawPoint(*m_boxScene, c.cx * 5.0, c.cy * 5.0, c.radius, QPen(Qt::black));
-        //drawPoint( c.cx, c.cy, c.radius );
-        //pixel hole are about 0.5 inches or 0.25
-        if (0.2 > c.radius || c.radius > 0.3) {
-            continue;
-        }
-
-        //int newX = (int)(c.cx * 2.0);
-        //int newY = (int)(c.cy * 2.0);
-        //
-        //if (newX < minX) {
-        //    minX = newX - 1;
-        //}
-        //if (newY < minY) {
-        //    minY = newY - 1;
-        //}
-        //
-        //if (newX > maxX) {
-        //    maxX = newX + 1;
-        //}
-        //if (newY > maxY) {
-        //    maxY = newY + 1;
-        //}
-
-        Node newNode(c.cx, c.cy, c.radius);
-        m_model->AddNode( newNode );
-    }
-    for (auto const& v : m_dxf_data->vertexs) 
-    {
-
-        //drawPoint(*m_boxScene, v.x * 5.0, v.y * 5.0, std::abs(v.bulge)*5.0, QPen(Qt::black));
-        //drawPoint( c.cx, c.cy, c.radius );
-        //pixel hole are about 0.5 inches or 0.25
-        //if (0.2 > c.radius || c.radius > 0.3) {
-        //    continue;
-        //}
-
-        //int newX = (int)(v.x * 2.0);
-        //int newY = (int)(v.y * 2.0);
-        //
-        //if (newX < minX) {
-        //    minX = newX - 1;
-        //}
-        //if (newY < minY) {
-        //    minY = newY - 1;
-        //}
-        //
-        //if (newX > maxX) {
-        //    maxX = newX + 1;
-        //}
-        //if (newY > maxY) {
-        //    maxY = newY + 1;
-        //}
-
-        Node newNode(v.x, v.y, std::abs(v.bulge));
-        m_model->AddNode(newNode);
-    }
-
-    for (auto const& l : m_dxf_data->lines) {
-        //DrawLine( l.x1, l.y1, l.x2, l.y2 );
-        //drawLine(*m_boxScene, l.x1, l.y1, l.x2, l.y2, QPen(Qt::black));
-    }
-
-    for (auto const& t : m_dxf_data->texts) {
-        //dc.SetClippingRegion( pt, size );
-        //dc.DrawText( t.text, t.height, t.xScaleFactor );
-        //dc.DestroyClippingRegion();
-    }
-
-    //minX = std::max(minX, 0);
-    //minY = std::max(minY, 0);
-    //m_model->SetBoundingBox( minX, maxX, minY, maxY );
-}
-
-void MainWindow::StartAutoWire(double wireGap)
-{
-    if (!m_model) {
-        return;
-    }
-    else
-    {
-        statusBar()->showMessage("No Model Loaded");
-    }
-    QProgressDialog progressDialog("Finding Nodes", "Cancel", 0, m_model->GetNodeCount(), this);
-    progressDialog.setWindowModality(Qt::WindowModal);
-
-    AutoWire sort(m_model.get(), wireGap);
-
-	connect(&sort, &AutoWire::OnProgressSent, &progressDialog, &QProgressDialog::setValue);
-
-    connect(&progressDialog, &QProgressDialog::canceled, [&sort]() {sort.Cancel();});
-
-    if (auto node = m_model->FindNodeNumber(1); node) {
-        m_model->ClearWiring();
-
-        sort.WireModel2(node->get().X, node->get().Y);
-        bool worked = sort.GetWorked();
-        bool cal = sort.GetCancelled();
-
-        if (worked || cal) {
-            int order = 1;
-            for (auto* index : sort.GetDoneNodes()) {
-                index->NodeNumber = order;
-                order++;
-            }
-            m_model->SortNodes();
-        }
-        else {
-            if (auto node2 = m_model->FindNode(node->get().X, node->get().Y); node2) {
-                node2->get().NodeNumber = 1;
-            }
-        }
-        statusBar()->showMessage(worked ? "Worked!" : "Didn't Work:(");
-    }
-    else {
-        statusBar()->showMessage("No Starting Node Set");
-    }
-    //PanelPictureView->DrawPicture();
-    RefreshNodes();
-}
-
-void MainWindow::RefreshNodes()
-{
-    drawModel();
-    m_ui->tableWidgetNodes->clearContents();
-    m_ui->tableWidgetNodes->setRowCount(m_model->GetNodeCount());
-
-    int row { 0 };
-    for (auto const& node : m_model->GetNodes())
-    {
-        m_ui->tableWidgetNodes->setItem(row, (int)NodeColumns::X, new QTableWidgetItem());
-        m_ui->tableWidgetNodes->item(row, (int)NodeColumns::X)->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-        m_ui->tableWidgetNodes->setItem(row, (int)NodeColumns::Y, new QTableWidgetItem());
-        m_ui->tableWidgetNodes->item(row, (int)NodeColumns::Y)->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-        m_ui->tableWidgetNodes->setItem(row, (int)NodeColumns::NodeNumber, new QTableWidgetItem());
-        m_ui->tableWidgetNodes->item(row, (int)NodeColumns::NodeNumber)->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-
-        m_ui->tableWidgetNodes->item(row, (int)NodeColumns::X)->setText(QString::number(node.X));
-        m_ui->tableWidgetNodes->item(row, (int)NodeColumns::Y)->setText(QString::number(node.Y));
-        m_ui->tableWidgetNodes->item(row, (int)NodeColumns::NodeNumber)->setText(QString::number(node.NodeNumber));
-		row++;
-    }
-    m_ui->tableWidgetNodes->resizeColumnsToContents();
-    //statusBar()->showMessage(QString("%1 Nodes Found").arg(m_model->GetNodeCount()));
-    //StaticTextNodes->SetLabelText(wxString::Format("%zu Nodes Found", m_model->GetNodeCount()));
-}
-
-void MainWindow::UpdateRow(int row, Node const& _node)
-{
-    if (!m_model) {
-        return;
-    }
-    if (row < 0 || row >= m_model->GetNodeCount()) {
-        return;
-    }
-    m_ui->tableWidgetNodes->item(row, (int)NodeColumns::X)->setText(QString::number(_node.X));
-    m_ui->tableWidgetNodes->item(row, (int)NodeColumns::Y)->setText(QString::number(_node.Y));
-	m_ui->tableWidgetNodes->item(row, (int)NodeColumns::NodeNumber)->setText(QString::number(_node.NodeNumber));
-}
-
-void MainWindow::drawModel()
-{
-    if (!m_model) {
-        return;
-	}
-    for (auto const& n : m_model->GetNodes())
-    {
-        drawPoint(*m_boxScene, n.X * 5.0, n.Y * 5.0, n.Radius * 5.0, n.IsFirst() ? Qt::red : n.IsWired() ? Qt::blue : Qt::black);
-
-        if (n.IsWired())
-        {
-            drawTest(*m_boxScene, n.X * 5.0, n.Y * 5.0, QString::number(n.NodeNumber), Qt::black);
-        }
-    }
-}
-
-void MainWindow::drawPoint(QGraphicsScene& scene, double x, double y, double radius, QColor color)
-{
-    const QBrush blackbrush(color, Qt::SolidPattern );
-
-    // y is negative due to graphics drawn from top left
-    scene.addEllipse(x, -y - radius, radius, radius, Qt::NoPen, blackbrush);
-}
-
-void MainWindow::drawLine(QGraphicsScene& scene, double x1, double y1, double x2, double y2, QColor color)
-{
-    // y is negative due to graphics drawn from top left
-
-    scene.addLine(x1, -y1, x2, -y2, QPen(color));
-
-}
-
-void MainWindow::drawTest(QGraphicsScene& scene, double x, double y, QString const& text, QColor color)
-{
-    const QPen mainPen(color, 1);
-    const QBrush blackbrush(color, Qt::SolidPattern);
-
-    QFont font;
-    font.setPixelSize(int(2));
-    font.setBold(false);
-    font.setFamily("Calibri");
-
-
-    QGraphicsTextItem* io = new QGraphicsTextItem;
-    io->setPos(x, -y);
-    io->setPlainText(text);
-    io->setFont(font);
-    //io->al
-    //io->setTransformOriginPoint(((newText.Location2.x+10)*150),((newText.Location2.y+10)*150));
-    //io->setRotation(newText.Angle*(-180.0/3.14159265359));
-    //io->setRotation
-
-    scene.addItem(io);
-}
-
-void MainWindow::updateSelectRect(QRect rect)
-{
-    //m_ui.pushButtonApply->setEnabled(true);
-
-    QRect boundary = rect;//.normalized();
-
-    QRect flippedRect((boundary.x()/5.0), (-boundary.y() / 5.0), (boundary.width() / 5.0), -(boundary.height() / 5.0));
-
-	qDebug("Select Rect: X:%d, Y:%d, W:%d, H:%d", flippedRect.x(), flippedRect.y(), flippedRect.width(), flippedRect.height());
-
-    //qDebug(flippedRect);
-
-	//boundary.setBottom(-boundary.bottom());
-	//boundary.setTop(-boundary.top());
-    
-    //rect = Settings::NormalizeBoundary(rect);
-
-    //m_selection = rect;
-    //drawRectangle(rect, QPen(Qt::red, 5));
-    if (!m_model) {
+    // The start node is chosen by clicking/dragging in the drawing view.
+    if( m_startNodeIndex < 0 || m_startNodeIndex >= static_cast< int >( m_model->GetNodeCount() ) ) {
+        QMessageBox::information(
+            this, tr( "AutoWire" ),
+            tr( "Click a node in the drawing to choose the start node first." ) );
         return;
     }
 
-    int idx = m_model->FindNodeInBox(flippedRect);
-    if (idx != -1) {
+    Node const& start = m_model->GetNodes().at( m_startNodeIndex );
 
-        if (auto node = m_model->GetNode(idx); node) {
-            m_model->ClearWiring();
-            m_model->SetNodeNumber(idx,1);
-            UpdateRow(idx, node->get());
-            m_ui->tableWidgetNodes->selectRow(idx);
-            statusBar()->showMessage(QString("Node:%1, X:%2, Y:%3").arg(node->get().NodeNumber).arg(node->get().X).arg(node->get().Y));
-            //drawPoint(*m_boxScene, node->get().X * 5.0, node->get().Y * 5.0, node->get().Radius * 5.0, node->get().IsFirst() ? Qt::red : node->get().IsWired() ? Qt::blue : Qt::black);
-            drawModel();
-        }
+    spdlog::info( "AutoWire: gap {}mm, start ({}, {})", wireGapMm, start.X, start.Y );
+
+    AutoWire autoWire( m_model.get(), wireGapMm );
+    autoWire.WireModel( start.X, start.Y );
+
+    // Write the discovered order back as 1-based node numbers.
+    m_model->ClearWiring();
+    int nodeNumber = 1;
+    for( int index : autoWire.GetIndexes() ) {
+        m_model->SetNodeNumber( index, nodeNumber++ );
     }
-    else {
-        m_ui->tableWidgetNodes->clearSelection();
-	}
 
+    refreshModelView();
 
-	statusBar()->showMessage(QString("X:%1, Y:%2, W:%3, H:%4").arg(boundary.x()).arg(boundary.y()).arg(boundary.width()).arg(boundary.height()));
+    int const wiredCount = static_cast< int >( autoWire.GetIndexes().size() );
+    int const totalCount = static_cast< int >( m_model->GetNodeCount() );
+
+    spdlog::info( "AutoWire wired {}/{} nodes (complete: {})",
+                  wiredCount, totalCount, autoWire.GetWorked() );
+
+    if( autoWire.GetWorked() ) {
+        QMessageBox::information( this, tr( "AutoWire" ),
+                                 tr( "Wired all %1 nodes." ).arg( totalCount ) );
+    } else {
+        QMessageBox::warning(
+            this, tr( "AutoWire" ),
+            tr( "Only wired %1 of %2 nodes before the gap was too small to continue.\n"
+                "Try increasing the wire gap or choosing a different start node." )
+                .arg( wiredCount )
+                .arg( totalCount ) );
+    }
 }
 
-void MainWindow::updateMousePosition(qreal x, qreal y)
+void MainWindow::on_actionView_Logs_triggered()
 {
-    //m_pcbX = (int)x;
-    //m_pcbY = (int)y;
-    QString const string = QString("X:%1, Y:%2").arg((int)x/5).arg((int)y/5);
-    statusBar()->showMessage(string);
+	
 }

@@ -6,16 +6,12 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>870</width>
-    <height>722</height>
+    <width>662</width>
+    <height>436</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>xModelGen</string>
-  </property>
-  <property name="windowIcon">
-   <iconset resource="xmodel_gen.qrc">
-    <normaloff>:/xmodel_gen/xmodel_gen.png</normaloff>:/xmodel_gen/xmodel_gen.png</iconset>
+   <string>MainWindow</string>
   </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QVBoxLayout" name="verticalLayout">
@@ -30,93 +26,112 @@
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
       </property>
-      <widget class="QTableWidget" name="tableWidgetNodes">
+      <property name="opaqueResize">
+       <bool>true</bool>
+      </property>
+      <property name="handleWidth">
+       <number>5</number>
+      </property>
+      <property name="childrenCollapsible">
+       <bool>false</bool>
+      </property>
+      <widget class="QListWidget" name="listWidgetNodes">
        <property name="sizePolicy">
         <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
        </property>
-       <column>
-        <property name="text">
-         <string>X</string>
-        </property>
-       </column>
-       <column>
-        <property name="text">
-         <string>Y</string>
-        </property>
-       </column>
-       <column>
-        <property name="text">
-         <string>Node</string>
-        </property>
-       </column>
       </widget>
-      <widget class="QScrollArea" name="scrollArea">
-       <property name="widgetResizable">
-        <bool>true</bool>
+      <widget class="QGraphicsView" name="graphicsViewDraw">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+         <horstretch>1</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
        </property>
-       <widget class="QWidget" name="scrollAreaWidgetContents">
-        <property name="geometry">
-         <rect>
-          <x>0</x>
-          <y>0</y>
-          <width>437</width>
-          <height>628</height>
-         </rect>
-        </property>
-        <layout class="QHBoxLayout" name="horizontalLayout">
-         <item>
-          <widget class="BoxGraphicsView" name="boxView">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-             <horstretch>0</horstretch>
-             <verstretch>1</verstretch>
-            </sizepolicy>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
       </widget>
      </widget>
     </item>
     <item>
      <layout class="QHBoxLayout" name="horizontalLayout">
       <item>
+       <widget class="QLabel" name="label_holeDia">
+        <property name="text">
+         <string>Hole &#216;:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QDoubleSpinBox" name="doubleSpinBox_holeDia">
+        <property name="toolTip">
+         <string>Target hole diameter in millimetres (re-detects on change)</string>
+        </property>
+        <property name="suffix">
+         <string> mm</string>
+        </property>
+        <property name="decimals">
+         <number>1</number>
+        </property>
+        <property name="minimum">
+         <double>0.500000000000000</double>
+        </property>
+        <property name="maximum">
+         <double>1000.000000000000000</double>
+        </property>
+        <property name="singleStep">
+         <double>0.500000000000000</double>
+        </property>
+        <property name="value">
+         <double>12.000000000000000</double>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QLabel" name="label">
         <property name="sizePolicy">
-         <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+         <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
         <property name="text">
-         <string>Wire Length:</string>
+         <string>Wire gap:</string>
         </property>
        </widget>
       </item>
       <item>
-       <widget class="QDoubleSpinBox" name="doubleSpinBox_wireSize">
+       <widget class="QSpinBox" name="spinBox_wireSize">
         <property name="sizePolicy">
-         <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+         <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
+        <property name="toolTip">
+         <string>Maximum gap between consecutive wired nodes, in millimetres</string>
+        </property>
+        <property name="suffix">
+         <string> mm</string>
+        </property>
+        <property name="minimum">
+         <number>1</number>
+        </property>
         <property name="maximum">
-         <double>9999.989999999999782</double>
+         <number>1000000</number>
+        </property>
+        <property name="singleStep">
+         <number>5</number>
         </property>
         <property name="value">
-         <double>2.000000000000000</double>
+         <number>100</number>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="pushButton_autoWire">
         <property name="sizePolicy">
-         <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+         <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
@@ -148,15 +163,15 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>870</width>
-     <height>22</height>
+     <width>662</width>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
     <property name="title">
      <string>File</string>
     </property>
-    <addaction name="actionOpen_dxf"/>
+    <addaction name="actionOpen_DXF"/>
     <addaction name="actionExport_xModel"/>
     <addaction name="separator"/>
     <addaction name="actionExit"/>
@@ -167,23 +182,11 @@
     </property>
     <addaction name="actionAutoWire"/>
    </widget>
-   <widget class="QMenu" name="menuTools">
-    <property name="title">
-     <string>Tools</string>
-    </property>
-    <addaction name="actionView_Logs"/>
-    <addaction name="actionAbout"/>
-   </widget>
    <addaction name="menuFile"/>
    <addaction name="menuWire"/>
-   <addaction name="menuTools"/>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
-  <action name="actionOpen_dxf">
-   <property name="icon">
-    <iconset resource="xmodel_gen.qrc">
-     <normaloff>:/xmodel_gen/icons/page_white_h.png</normaloff>:/xmodel_gen/icons/page_white_h.png</iconset>
-   </property>
+  <action name="actionOpen_DXF">
    <property name="text">
     <string>Open DXF...</string>
    </property>
@@ -194,10 +197,6 @@
    </property>
   </action>
   <action name="actionExit">
-   <property name="icon">
-    <iconset resource="xmodel_gen.qrc">
-     <normaloff>:/xmodel_gen/icons/cross.png</normaloff>:/xmodel_gen/icons/cross.png</iconset>
-   </property>
    <property name="text">
     <string>Exit</string>
    </property>
@@ -207,31 +206,8 @@
     <string>AutoWire</string>
    </property>
   </action>
-  <action name="actionView_Logs">
-   <property name="icon">
-    <iconset resource="xmodel_gen.qrc">
-     <normaloff>:/xmodel_gen/icons/script.png</normaloff>:/xmodel_gen/icons/script.png</iconset>
-   </property>
-   <property name="text">
-    <string>View Logs</string>
-   </property>
-  </action>
-  <action name="actionAbout">
-   <property name="text">
-    <string>About</string>
-   </property>
-  </action>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
- <customwidgets>
-  <customwidget>
-   <class>BoxGraphicsView</class>
-   <extends>QGraphicsView</extends>
-   <header>boxgraphicsview.h</header>
-  </customwidget>
- </customwidgets>
- <resources>
-  <include location="xmodel_gen.qrc"/>
- </resources>
+ <resources/>
  <connections/>
 </ui>

@@ -1,26 +1,11 @@
 #pragma once
 #include "dxf_data.h"
 
-#include "..\dxflib\src\dl_creationadapter.h"
-#include "..\dxflib\src\dl_entities.h"
+#include "dl_creationadapter.h"
+#include "dl_entities.h"
 
 #include <string>
 #include <memory>
-
-struct PolylineEntity
-{
-    bool m_isPolyLine{false};
-    bool m_first{ true };
-    int m_EntityFlag{0};           // a info flag to parse entities
-
-    DL_VertexData m_LastCoordinate; 
-    DL_VertexData m_PolylineStart;
-    void clear() {
-        m_isPolyLine = false;
-        m_first = true;
-        m_EntityFlag = 0;
-    }
-};
 
 class dxf_reader : public DL_CreationAdapter {
 
@@ -36,16 +21,23 @@ public:
     void addCircle(const DL_CircleData& data) override;
     void addEllipse(const DL_EllipseData& data) override;
     void addPolyline(const DL_PolylineData& data) override;
-    //void addPolyline(const DL_LwPolylineData& data) override;
+    void addVertex(const DL_VertexData& data) override;
     void addText(const DL_TextData& data) override;
-    void addVertex(const DL_VertexData& aData) override;
-    void endEntity() override;
+
+    void addBlock(const DL_BlockData& data) override;
+    void endBlock() override;
+    void addInsert(const DL_InsertData& data) override;
+
+    void setVariableInt(const std::string& key, int value, int code) override;
 
     std::unique_ptr<dxf_data> moveData() { return std::move(m_data); }
 
-    PolylineEntity m_curr_entity;
-
 private:
+    // Geometry goes to the current block while a block is being defined,
+    // otherwise to model space.
+    dxf_data::Geometry& target();
+
     std::unique_ptr<dxf_data> m_data;
+    dxf_data::Block* m_currentBlock{ nullptr };
 
 };

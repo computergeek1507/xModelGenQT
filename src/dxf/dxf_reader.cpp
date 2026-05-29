@@ -1,15 +1,18 @@
 #include "dxf_reader.h"
 
-#include "..\dxflib\src\dl_dxf.h"
+#include "dl_dxf.h"
 
 bool dxf_reader::openFile(const std::string& fileName){
     m_data = std::make_unique<dxf_data>();
+    m_currentBlock = nullptr;
     DL_Dxf dxf;
     bool success = dxf.in(fileName, this);
-    if (success) {
-        m_data->filename = fileName;
-	}
     return success;
+}
+
+dxf_data::Geometry& dxf_reader::target() {
+    return m_currentBlock ? static_cast<dxf_data::Geometry&>(*m_currentBlock)
+                          : m_data->model;
 }
 
 void dxf_reader::addPoint(const DL_PointData& data) {
@@ -17,70 +20,70 @@ void dxf_reader::addPoint(const DL_PointData& data) {
 }
 
 void dxf_reader::addLine(const DL_LineData& data) {
-    DL_Attributes attrib = getAttributes();
-    m_data->lines.push_back(data);
+    target().lines.push_back(data);
 }
 
 void dxf_reader::addArc(const DL_ArcData& data) {
-    m_data->arcs.push_back(data);
+    target().arcs.push_back(data);
 }
 
 void dxf_reader::addCircle(const DL_CircleData& data) {
-    m_data->circles.push_back(data);
+    target().circles.push_back(data);
 }
 
 void dxf_reader::addEllipse(const DL_EllipseData& data) {
-    m_data->ellipses.push_back(data);
+
 }
 
 void dxf_reader::addPolyline(const DL_PolylineData& data) {
-    //DL_Attributes attrib = getAttributes();
-    //m_data->polylines.push_back(data);
-    m_curr_entity.clear();
-    if (data.number >3)
-    m_curr_entity.m_isPolyLine = true;
-	m_curr_entity.m_EntityFlag = data.flags;
+    dxf_data::PolyLine pl;
+    pl.flags = data.flags;
+    pl.vertices.reserve(data.number);
+    target().polylines.push_back(std::move(pl));
+}
+
+void dxf_reader::addVertex(const DL_VertexData& data) {
+    // Vertices arrive after their owning polyline; append to the current one.
+    auto& polylines = target().polylines;
+    if (!polylines.empty()) {
+        polylines.back().vertices.push_back(data);
+    }
 }
 
 void dxf_reader::addText(const DL_TextData& data) {
     m_data->texts.push_back(data);
 }
 
-void dxf_reader::addVertex(const DL_VertexData& aData)
-{
-
-    const DL_VertexData* vertex = &aData;
-
-    if (m_curr_entity.m_first)
-    {
-        m_curr_entity.m_PolylineStart = aData;
-            m_curr_entity.m_first = false;
-        return;
-    }
-
-    m_curr_entity.m_LastCoordinate = aData;
+void dxf_reader::addBlock(const DL_BlockData& data) {
+    dxf_data::Block block;
+    block.name = data.name;
+    block.bx = data.bpx;
+    block.by = data.bpy;
+    auto const result = m_data->blocks.emplace(data.name, std::move(block));
+    m_currentBlock = &result.first->second;
 }
 
+void dxf_reader::endBlock() {
+    m_currentBlock = nullptr;
+}
 
-void dxf_reader::endEntity()
-{
-    if (m_curr_entity.m_isPolyLine)
-    {
-        // Polyline flags bit 0 indicates closed (1) or open (0) polyline
-        if (m_curr_entity.m_EntityFlag & 1)
-        {
-            
-            if (std::abs(m_curr_entity.m_LastCoordinate.bulge) > 0.1 &&
-                std::abs(m_curr_entity.m_LastCoordinate.bulge) < 1.0) {
-                m_data->vertexs.push_back(m_curr_entity.m_LastCoordinate);
-            }
-            else {
-                DL_LineData line(m_curr_entity.m_LastCoordinate.x, m_curr_entity.m_LastCoordinate.y, m_curr_entity.m_LastCoordinate.z,
-                    m_curr_entity.m_PolylineStart.x, m_curr_entity.m_PolylineStart.y, m_curr_entity.m_PolylineStart.z);
-                m_data->lines.push_back(line);
-			}
-        }        
+void dxf_reader::addInsert(const DL_InsertData& data) {
+    dxf_data::Insert ins;
+    ins.blockName = data.name;
+    ins.x = data.ipx;
+    ins.y = data.ipy;
+    ins.sx = data.sx;
+    ins.sy = data.sy;
+    ins.angle = data.angle;
+    ins.cols = data.cols;
+    ins.rows = data.rows;
+    ins.colSp = data.colSp;
+    ins.rowSp = data.rowSp;
+    target().inserts.push_back(std::move(ins));
+}
+
+void dxf_reader::setVariableInt(const std::string& key, int value, int /*code*/) {
+    if (key == "$INSUNITS") {
+        m_data->insUnits = value;
     }
-
-    m_curr_entity.clear();
 }
