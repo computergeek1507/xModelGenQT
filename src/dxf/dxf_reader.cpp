@@ -10,7 +10,7 @@ bool dxf_reader::openFile(const std::string& fileName){
 }
 
 void dxf_reader::addPoint(const DL_PointData& data) {
-    
+    m_data->points.push_back(data);
 }
 
 void dxf_reader::addLine(const DL_LineData& data) {
@@ -36,4 +36,10 @@ void dxf_reader::addPolyline(const DL_PolylineData& data) {
 
 void dxf_reader::addText(const DL_TextData& data) {
     m_data->texts.push_back(data);
+}
+
+void dxf_reader::setVariableInt(const std::string& key, int value, int /*code*/) {
+    if (key == "$INSUNITS") {
+        m_data->insUnits = value;
+    }
 }

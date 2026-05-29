@@ -10,7 +10,7 @@ struct Node;
 class AutoWire
 {
 public:
-    AutoWire( Model* model, int wireGap ) :
+    AutoWire( Model* model, double wireGap ) :
         m_model( model ), m_wireGap( wireGap )
     { }
 
@@ -22,9 +22,9 @@ public:
 
 private:
     Model* m_model;
-    int m_wireGap{ 5 };
+    double m_wireGap{ 5.0 };
     std::vector< int > m_doneIndexs;
     bool m_worked { false };
 
-    void WireNode( std::vector< Node > nodes, int count, std::vector< int > wiredIndex );
+    void WireNode( std::vector< Node > const& nodes, int startIndex );
 };

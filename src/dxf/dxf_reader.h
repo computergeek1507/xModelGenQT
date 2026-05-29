@@ -23,6 +23,8 @@ public:
     void addPolyline(const DL_PolylineData& data) override;
     void addText(const DL_TextData& data) override;
 
+    void setVariableInt(const std::string& key, int value, int code) override;
+
     std::unique_ptr<dxf_data> moveData() { return std::move(m_data); }
 
 private:

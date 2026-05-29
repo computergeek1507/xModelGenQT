@@ -8,9 +8,7 @@
 
 void AutoWire::WireModel( int startX, int startY )
 {
-    //OnListSizeSent( _model.GetNodeCount() + 1 );
-
-    std::vector< Node > Nodes = std::vector< Node >( m_model->GetNodes() );
+    std::vector< Node > const& nodes = m_model->GetNodes();
 
     int index = m_model->FindNodeIndex( startX, startY );
 
@@ -18,40 +16,60 @@ void AutoWire::WireModel( int startX, int startY )
         return;
     }
 
-    std::vector< int > nodesUsed = std::vector< int >();
-    nodesUsed.push_back( index );
-    int count = 0;
-
-    WireNode( Nodes, count, nodesUsed );
+    WireNode( nodes, index );
 }
 
-void AutoWire::WireNode( std::vector< Node > nodes, int count, std::vector< int > wiredIndex )
+// Greedy nearest-neighbour wiring: start at the chosen node and repeatedly hop to
+// the closest not-yet-wired node that lies within m_wireGap, until no reachable
+// node remains. m_wireGap is expressed in the model's drawing units (the caller is
+// responsible for converting a real-world gap into those units). This runs in
+// O(n^2) instead of the previous exponential backtracking search.
+//
+// The partial order is always recorded in m_doneIndexs; m_worked is only true when
+// every node was reached, so the caller can detect a gap that is too small.
+void AutoWire::WireNode( std::vector< Node > const& nodes, int startIndex )
 {
-    if( m_worked )
-        return;
-    if( count + 1 >= nodes.size() ) {
-        if( wiredIndex.size() == nodes.size() ) {
-            m_doneIndexs = wiredIndex;
-            m_worked     = true;
-        }
+    if( nodes.empty() ) {
         return;
     }
-    //OnProgressSent( wiredIndex.Count().ToString(), count );
 
-    for( int i = 0; i < nodes.size(); ++i ) {
-        if( std::find( wiredIndex.begin(), wiredIndex.end(), i ) != wiredIndex.end() ) {
-            continue;
-        }
-        //if( wiredIndex.Contains( i ) )
-        //    continue;
+    std::vector< bool > visited( nodes.size(), false );
 
-        double dist = model_utils::GetDistance( nodes[ wiredIndex[ count ] ], nodes[ i ] );
-        if( dist <= m_wireGap ) {
-            std::vector< int > newwiredIndex = std::vector< int >( wiredIndex );
-            newwiredIndex.push_back( i );
-            int newCount = count;
-            newCount++;
-            WireNode( nodes, newCount, newwiredIndex );
+    std::vector< int > order;
+    order.reserve( nodes.size() );
+    order.push_back( startIndex );
+    visited[ startIndex ] = true;
+
+    int current = startIndex;
+
+    while( order.size() < nodes.size() ) {
+        int    nearest     = -1;
+        double nearestDist = 0.0;
+
+        for( int i = 0; i < static_cast< int >( nodes.size() ); ++i ) {
+            if( visited[ i ] ) {
+                continue;
+            }
+
+            double dist = model_utils::GetDistance( nodes[ current ], nodes[ i ] );
+            if( dist > m_wireGap ) {
+                continue;  // too far to wire to from the current node
+            }
+            if( nearest == -1 || dist < nearestDist ) {
+                nearest     = i;
+                nearestDist = dist;
+            }
         }
+
+        if( nearest == -1 ) {
+            break;  // no unwired node within the gap — wiring is stuck here
+        }
+
+        order.push_back( nearest );
+        visited[ nearest ] = true;
+        current            = nearest;
     }
+
+    m_doneIndexs = order;
+    m_worked     = ( order.size() == nodes.size() );
 }

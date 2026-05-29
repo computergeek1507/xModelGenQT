@@ -21,7 +21,7 @@ include(FetchContent)
 FetchContent_Declare(
         spdlog
         GIT_REPOSITORY https://github.com/gabime/spdlog.git
-        GIT_TAG        v1.11.0
+        GIT_TAG        v1.15.1
 )
 
 FetchContent_GetProperties(spdlog)
@@ -32,7 +32,7 @@ endif()
 
 FetchContent_Declare(nlohmann_json
   GIT_REPOSITORY https://github.com/nlohmann/json
-  GIT_TAG v3.7.3)
+  GIT_TAG v3.11.3)
 
 FetchContent_GetProperties(nlohmann_json)
 if(NOT nlohmann_json_POPULATED)
@@ -56,6 +56,10 @@ configure_file(res/installer/xmodel_gen.iss.in ${CMAKE_CURRENT_SOURCE_DIR}/res/i
 
 file( GLOB_RECURSE BASE_SRC src/*cpp src/*h)
 file( GLOB_RECURSE BASE_RES res/*ui res/*qrc)
+
+# The bundled dxflib ships example programs (each with their own main()); keep
+# them out of the application build.
+list(FILTER BASE_SRC EXCLUDE REGEX "dxflib/examples")
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
 qt6_wrap_ui(BASE_SRC res/mainwindow.ui)
@@ -93,6 +97,9 @@ else()
 endif()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::PrintSupport spdlog::spdlog nlohmann_json::nlohmann_json)
+
+# dxflib headers (dl_dxf.h, dl_entities.h, ...) used by src/dxf.
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/dxflib/src)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER my.example.com
