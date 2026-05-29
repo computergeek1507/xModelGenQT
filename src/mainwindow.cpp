@@ -335,6 +335,38 @@ void MainWindow::on_pushButton_autoWire_clicked()
     runAutoWire( ui->spinBox_wireSize->value() );
 }
 
+int MainWindow::wireFrom( int startIndex, double wireGapMm )
+{
+    Node const& start = m_model->GetNodes().at( startIndex );
+
+    spdlog::info( "AutoWire: gap {}mm, start ({}, {})", wireGapMm, start.X, start.Y );
+
+    AutoWire autoWire( m_model.get(), wireGapMm );
+    autoWire.WireModel( start.X, start.Y );
+
+    // Write the discovered order back as 1-based node numbers.
+    m_model->ClearWiring();
+    int nodeNumber = 1;
+    for( int index : autoWire.GetIndexes() ) {
+        m_model->SetNodeNumber( index, nodeNumber++ );
+    }
+
+    m_startNodeIndex = startIndex;
+    refreshModelView();
+
+    int const wiredCount = static_cast< int >( autoWire.GetIndexes().size() );
+    spdlog::info( "AutoWire wired {}/{} nodes (complete: {})",
+                  wiredCount, m_model->GetNodeCount(), autoWire.GetWorked() );
+    return wiredCount;
+}
+
+void MainWindow::autoWireFromFirst( double wireGapMm )
+{
+    if( m_model && m_model->GetNodeCount() > 0 ) {
+        wireFrom( 0, wireGapMm );
+    }
+}
+
 void MainWindow::runAutoWire( double wireGapMm )
 {
     if( !m_model || m_model->GetNodeCount() == 0 ) {
@@ -351,29 +383,10 @@ void MainWindow::runAutoWire( double wireGapMm )
         return;
     }
 
-    Node const& start = m_model->GetNodes().at( m_startNodeIndex );
-
-    spdlog::info( "AutoWire: gap {}mm, start ({}, {})", wireGapMm, start.X, start.Y );
-
-    AutoWire autoWire( m_model.get(), wireGapMm );
-    autoWire.WireModel( start.X, start.Y );
-
-    // Write the discovered order back as 1-based node numbers.
-    m_model->ClearWiring();
-    int nodeNumber = 1;
-    for( int index : autoWire.GetIndexes() ) {
-        m_model->SetNodeNumber( index, nodeNumber++ );
-    }
-
-    refreshModelView();
-
-    int const wiredCount = static_cast< int >( autoWire.GetIndexes().size() );
+    int const wiredCount = wireFrom( m_startNodeIndex, wireGapMm );
     int const totalCount = static_cast< int >( m_model->GetNodeCount() );
 
-    spdlog::info( "AutoWire wired {}/{} nodes (complete: {})",
-                  wiredCount, totalCount, autoWire.GetWorked() );
-
-    if( autoWire.GetWorked() ) {
+    if( wiredCount == totalCount ) {
         QMessageBox::information( this, tr( "AutoWire" ),
                                  tr( "Wired all %1 nodes." ).arg( totalCount ) );
     } else {

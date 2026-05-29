@@ -48,8 +48,8 @@ int main(int argc, char *argv[])
     MainWindow w;
     w.show();
 
-    // Optionally open a DXF passed on the command line:
-    //   xmodel_gen <file.dxf> [holeDiameterMm]
+    // Optionally drive from the command line (for testing/automation):
+    //   xmodel_gen <file.dxf> [holeDiameterMm] [wireGapMm]
     QStringList const args = a.arguments();
     if (args.size() > 2) {
         bool ok = false;
@@ -60,6 +60,13 @@ int main(int argc, char *argv[])
     }
     if (args.size() > 1) {
         w.loadDxf(args.at(1));
+    }
+    if (args.size() > 3) {
+        bool ok = false;
+        double const gap = args.at(3).toDouble(&ok);
+        if (ok) {
+            w.autoWireFromFirst(gap);
+        }
     }
 
     int const rc = a.exec();

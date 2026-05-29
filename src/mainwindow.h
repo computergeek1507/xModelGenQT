@@ -30,6 +30,9 @@ public:
     // Set the target hole diameter (mm) shown in the spin box.
     void setHoleDiameter( double mm );
 
+    // Wire the loaded model starting from the first node (for CLI/testing).
+    void autoWireFromFirst( double wireGapMm );
+
 public Q_SLOTS:
 
     void on_actionOpen_DXF_triggered();
@@ -66,6 +69,9 @@ private:
 
     // Wire the model from the selected start node with the given gap (millimetres).
     void runAutoWire( double wireGapMm );
+
+    // Core wiring: wire from startIndex with the given gap; returns nodes wired.
+    int wireFrom( int startIndex, double wireGapMm );
 
     Ui::MainWindow *ui;
 
