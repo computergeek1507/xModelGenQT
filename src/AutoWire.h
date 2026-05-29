@@ -1,12 +1,15 @@
 #pragma once
 
-#include <string>
 #include <vector>
-#include <cmath>
 
 class Model;
 struct Node;
 
+// Finds a wiring order through the model's nodes by recursive backtracking.
+// Starting from a chosen node it hops to any not-yet-wired node within wireGap
+// (so it may skip a near node and pick it up later), trying alternatives until it
+// finds a path that visits every node. If no complete path exists within the gap,
+// the longest path found is kept.
 class AutoWire
 {
 public:
@@ -23,8 +26,12 @@ public:
 private:
     Model* m_model;
     double m_wireGap{ 5.0 };
-    std::vector< int > m_doneIndexs;
-    bool m_worked { false };
+    std::vector< int > m_doneIndexs;  // best (longest) path found; complete if m_worked
+    bool   m_worked{ false };
 
-    void WireNode( std::vector< Node > const& nodes, int startIndex );
+    // Within-gap neighbours of each node, nearest first.
+    std::vector< std::vector< int > > m_neighbors;
+    long long m_steps{ 0 };
+
+    void WireNode( std::vector< bool >& visited, std::vector< int >& path );
 };
