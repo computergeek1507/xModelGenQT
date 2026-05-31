@@ -54,6 +54,7 @@ public Q_SLOTS:
 	void on_pushButton_wireSection_clicked();
 	void on_pushButton_undoWire_clicked();
 	void on_comboBox_interactMode_currentIndexChanged( int index );
+	void on_comboBox_units_currentIndexChanged( int index );
 	void on_doubleSpinBox_holeDia_editingFinished();
 	void on_actionView_Logs_triggered();
 
@@ -65,6 +66,10 @@ private:
     // Detect holes in the loaded DXF at the current target diameter and rebuild
     // the model from them.
     void detectHoles();
+
+    // The DXF units code to use for conversions: the file's $INSUNITS, unless the
+    // Units combo overrides it (e.g. for unitless files actually drawn in inches).
+    int effectiveInsUnits() const;
 
     // Convert a real-world millimetre size into the loaded file's drawing units.
     double mmToDrawingUnits( double mm ) const;

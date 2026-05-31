@@ -124,14 +124,36 @@ void MainWindow::setHoleDiameter( double mm )
     ui->doubleSpinBox_holeDia->setValue( mm );
 }
 
+int MainWindow::effectiveInsUnits() const
+{
+    // Combo: 0 Auto, 1 mm, 2 cm, 3 in, 4 ft, 5 m. An override wins over $INSUNITS,
+    // which is essential for unitless files (e.g. an inch drawing with $INSUNITS=0).
+    switch( ui->comboBox_units->currentIndex() ) {
+        case 1:  return dxf_units::Millimeters;
+        case 2:  return dxf_units::Centimeters;
+        case 3:  return dxf_units::Inches;
+        case 4:  return dxf_units::Feet;
+        case 5:  return dxf_units::Meters;
+        default: return m_dxf_data ? m_dxf_data->insUnits : dxf_units::Unitless;
+    }
+}
+
 double MainWindow::mmToDrawingUnits( double mm ) const
 {
     if( !m_dxf_data ) {
         return mm;
     }
     double const du =
-        dxf_units::ToDrawingUnits( mm, dxf_units::Millimeters, m_dxf_data->insUnits );
+        dxf_units::ToDrawingUnits( mm, dxf_units::Millimeters, effectiveInsUnits() );
     return du < 0.0 ? mm : du;  // unknown units: treat the drawing as millimeters
+}
+
+void MainWindow::on_comboBox_units_currentIndexChanged( int /*index*/ )
+{
+    // Re-interpret the loaded drawing at the new units.
+    if( m_dxf_data ) {
+        detectHoles();
+    }
 }
 
 void MainWindow::detectHoles()
@@ -150,7 +172,7 @@ void MainWindow::detectHoles()
         std::vector< hole_finder::Hole > const holes =
             hole_finder::FindHoles( *m_dxf_data, holeDiameter, radiusTolerance );
 
-        double mmPerUnit = dxf_units::MillimetersPerUnit( m_dxf_data->insUnits );
+        double mmPerUnit = dxf_units::MillimetersPerUnit( effectiveInsUnits() );
         if( mmPerUnit <= 0.0 ) {
             mmPerUnit = 1.0;  // unknown units: treat the drawing as millimetres
         }

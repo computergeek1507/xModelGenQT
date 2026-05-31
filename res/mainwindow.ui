@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1080</width>
+    <width>1200</width>
     <height>436</height>
    </rect>
   </property>
@@ -75,10 +75,10 @@
          <string> mm</string>
         </property>
         <property name="decimals">
-         <number>1</number>
+         <number>2</number>
         </property>
         <property name="minimum">
-         <double>0.500000000000000</double>
+         <double>0.100000000000000</double>
         </property>
         <property name="maximum">
          <double>1000.000000000000000</double>
@@ -89,6 +89,50 @@
         <property name="value">
          <double>12.000000000000000</double>
         </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="label_units">
+        <property name="text">
+         <string>Units:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="comboBox_units">
+        <property name="toolTip">
+         <string>How to interpret the drawing's coordinates. &quot;Auto (file)&quot; uses the DXF $INSUNITS; override it (e.g. Inches) for unitless files drawn in another unit.</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>Auto (file)</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Millimeters</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Centimeters</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Inches</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Feet</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Meters</string>
+         </property>
+        </item>
        </widget>
       </item>
       <item>
