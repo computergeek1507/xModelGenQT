@@ -1,11 +1,14 @@
 #pragma once
 
+#include "AutoWire.h"
 #include "Model.h"
 #include "dxf/dxf_data.h"
+#include "svg/svg_reader.h"
 
 #include <QMainWindow>
 
 #include <memory>
+#include <set>
 #include <vector>
 
 namespace Ui {
@@ -15,6 +18,7 @@ class MainWindow;
 class QEvent;
 class QGraphicsScene;
 class QGraphicsEllipseItem;
+class QGraphicsRectItem;
 
 class MainWindow : public QMainWindow
 {
@@ -26,6 +30,9 @@ public:
 
     // Read a DXF file, build the model from it, and refresh the views.
     void loadDxf( QString const& fileName );
+
+    // Read an SVG file: collect circle-like elements as hole candidates.
+    void loadSvg( QString const& fileName );
 
     // Set the target hole diameter (mm) shown in the spin box.
     void setHoleDiameter( double mm );
@@ -39,10 +46,14 @@ public:
 public Q_SLOTS:
 
     void on_actionOpen_DXF_triggered();
+	void on_actionOpen_SVG_triggered();
 	void on_actionExport_xModel_triggered();
 	void on_actionExit_triggered();
 	void on_actionAutoWire_triggered();
 	void on_pushButton_autoWire_clicked();
+	void on_pushButton_wireSection_clicked();
+	void on_pushButton_undoWire_clicked();
+	void on_comboBox_interactMode_currentIndexChanged( int index );
 	void on_doubleSpinBox_holeDia_editingFinished();
 	void on_actionView_Logs_triggered();
 
@@ -58,11 +69,9 @@ private:
     // Convert a real-world millimetre size into the loaded file's drawing units.
     double mmToDrawingUnits( double mm ) const;
 
-    // Redraw the loaded model: the node list and the geometry in the view.
-    void refreshModelView();
-
-    // Recolour the node markers for the current start/wired state.
-    void updateNodeColors();
+    // Redraw the loaded model: the node list and the geometry in the view. Pass
+    // fitView=false to keep the current zoom/pan (for incremental wiring updates).
+    void refreshModelView( bool fitView = true );
 
     // Index of the model node nearest the given scene point, or -1.
     int nearestNodeIndex( double sceneX, double sceneY ) const;
@@ -73,12 +82,44 @@ private:
     // Wire the model from the selected start node with the given gap (millimetres).
     void runAutoWire( double wireGapMm );
 
-    // Core wiring: wire from startIndex with the given gap; returns nodes wired.
-    int wireFrom( int startIndex, double wireGapMm );
+    // The wiring strategy currently chosen in the UI combo box.
+    AutoWire::Strategy selectedStrategy() const;
+
+    // Core wiring: wire the whole model from startIndex with the given gap
+    // (clears any prior wiring and numbers 1..N); returns nodes wired.
+    int wireFrom( int startIndex, double wireGapMm, AutoWire::Strategy strategy );
+
+    // Run AutoWire (with the cancelable progress dialog) over `model` from the node
+    // nearest (startX,startY); returns the discovered visiting order (node indices).
+    std::vector< int > runSearch( Model& model, double wireGapMm, double startX,
+                                  double startY, AutoWire::Strategy strategy );
+
+    // --- manual + section wiring -----------------------------------------------
+    enum class InteractMode { PickStart, Manual, Section };
+
+    // Next 1-based wire number to assign (highest existing + 1), so manual picks and
+    // wired sections chain into one continuous run.
+    int nextNodeNumber() const;
+
+    // Append node `idx` to the wire run (manual mode), if not already wired.
+    void manualAddNode( int idx );
+
+    // Clear the highest-numbered node (undo the last manual/section step).
+    void undoLastWire();
+
+    // Auto-wire the current section selection, numbering on from the highest.
+    void wireSection();
+
+    // Replace/extend the section selection with the nodes inside `sceneRect`.
+    void applyRectSelection( QRectF const& sceneRect, bool additive );
+
+    // Recolour markers for the current wired/selected/start state.
+    void updateNodeColorsAndSelection();
 
     Ui::MainWindow *ui;
 
     std::unique_ptr<dxf_data> m_dxf_data;
+    std::vector< svg_reader::Circle > m_svgCircles;  // active when loaded from SVG
     std::unique_ptr< Model > m_model;
     std::unique_ptr< QGraphicsScene > m_scene;
 
@@ -88,6 +129,14 @@ private:
     // One ellipse marker per model node (parallel to Model::GetNodes()).
     std::vector< QGraphicsEllipseItem* > m_nodeItems;
     int m_startNodeIndex{ -1 };
+
+    // Interaction state for manual/section wiring.
+    InteractMode       m_mode{ InteractMode::PickStart };
+    std::set< int >    m_selection;             // section-mode selected node indices
+    std::set< int >    m_strokeAdded;           // nodes added during the current manual drag
+    bool               m_dragging{ false };     // a press-drag is in progress
+    QPoint             m_pressViewPos;          // viewport pos where the press began
+    QGraphicsRectItem* m_selRect{ nullptr };    // live rubber-band (owned by the scene)
 };
 
 

@@ -45,11 +45,15 @@ int main(int argc, char *argv[])
     spdlog::info("xModelGen starting");
 
     QApplication a(argc, argv);
+    // Stable identity so QSettings (used to remember last-used folders) persists
+    // to a consistent location across runs.
+    QCoreApplication::setOrganizationName("xModelGen");
+    QCoreApplication::setApplicationName("xModelGen");
     MainWindow w;
     w.show();
 
     // Optionally drive from the command line (for testing/automation):
-    //   xmodel_gen <file.dxf> [holeDiameterMm] [wireGapMm]
+    //   xmodel_gen <file.dxf|file.svg> [holeDiameterMm] [wireGapMm]
     QStringList const args = a.arguments();
     if (args.size() > 2) {
         bool ok = false;
@@ -59,7 +63,11 @@ int main(int argc, char *argv[])
         }
     }
     if (args.size() > 1) {
-        w.loadDxf(args.at(1));
+        if (args.at(1).endsWith(".svg", Qt::CaseInsensitive)) {
+            w.loadSvg(args.at(1));
+        } else {
+            w.loadDxf(args.at(1));
+        }
     }
     if (args.size() > 3) {
         bool ok = false;

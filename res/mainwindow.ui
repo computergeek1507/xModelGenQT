@@ -13,6 +13,10 @@
   <property name="windowTitle">
    <string>MainWindow</string>
   </property>
+  <property name="windowIcon">
+   <iconset resource="xmodel_gen.qrc">
+    <normaloff>:/xmodel_gen/xmodel_gen.png</normaloff>:/xmodel_gen/xmodel_gen.png</iconset>
+  </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QVBoxLayout" name="verticalLayout">
     <item>
@@ -58,7 +62,7 @@
       <item>
        <widget class="QLabel" name="label_holeDia">
         <property name="text">
-         <string>Hole &#216;:</string>
+         <string>Hole Ø:</string>
         </property>
        </widget>
       </item>
@@ -129,6 +133,30 @@
        </widget>
       </item>
       <item>
+       <widget class="QLabel" name="label_wireMethod">
+        <property name="text">
+         <string>Method:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="comboBox_wireStrategy">
+        <property name="toolTip">
+         <string>Nearest-first gives the tidiest wiring but can fail to complete from some start nodes; Warnsdorff always completes but with longer hops.</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>Nearest-first</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Warnsdorff</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item>
        <widget class="QPushButton" name="pushButton_autoWire">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
@@ -143,6 +171,75 @@
       </item>
       <item>
        <spacer name="horizontalSpacer">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayout2">
+      <item>
+       <widget class="QLabel" name="label_mode">
+        <property name="text">
+         <string>Mode:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QComboBox" name="comboBox_interactMode">
+        <property name="toolTip">
+         <string>Pick start: click a node to set the Auto Wire start. Manual wire: click or drag across nodes to wire them by hand. Select section: drag a box (or click nodes) to pick a group, then Wire Section.</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>Pick start</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Manual wire</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Select section</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButton_wireSection">
+        <property name="enabled">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Auto-wire only the selected nodes, numbering on from the highest existing wire number.</string>
+        </property>
+        <property name="text">
+         <string>Wire Section</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButton_undoWire">
+        <property name="toolTip">
+         <string>Remove the last-wired node (the highest wire number).</string>
+        </property>
+        <property name="text">
+         <string>Undo Last</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="horizontalSpacer2">
         <property name="orientation">
          <enum>Qt::Horizontal</enum>
         </property>
@@ -172,6 +269,7 @@
      <string>File</string>
     </property>
     <addaction name="actionOpen_DXF"/>
+    <addaction name="actionOpen_SVG"/>
     <addaction name="actionExport_xModel"/>
     <addaction name="separator"/>
     <addaction name="actionExit"/>
@@ -187,16 +285,37 @@
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
   <action name="actionOpen_DXF">
+   <property name="icon">
+    <iconset resource="xmodel_gen.qrc">
+     <normaloff>:/xmodel_gen/icons/folder.png</normaloff>:/xmodel_gen/icons/folder.png</iconset>
+   </property>
    <property name="text">
     <string>Open DXF...</string>
    </property>
   </action>
+  <action name="actionOpen_SVG">
+   <property name="icon">
+    <iconset resource="xmodel_gen.qrc">
+     <normaloff>:/xmodel_gen/icons/page_white_vector.png</normaloff>:/xmodel_gen/icons/page_white_vector.png</iconset>
+   </property>
+   <property name="text">
+    <string>Open SVG...</string>
+   </property>
+  </action>
   <action name="actionExport_xModel">
+   <property name="icon">
+    <iconset resource="xmodel_gen.qrc">
+     <normaloff>:/xmodel_gen/icons/drive_go.png</normaloff>:/xmodel_gen/icons/drive_go.png</iconset>
+   </property>
    <property name="text">
     <string>Export xModel</string>
    </property>
   </action>
   <action name="actionExit">
+   <property name="icon">
+    <iconset resource="xmodel_gen.qrc">
+     <normaloff>:/xmodel_gen/icons/cross.png</normaloff>:/xmodel_gen/icons/cross.png</iconset>
+   </property>
    <property name="text">
     <string>Exit</string>
    </property>
@@ -208,6 +327,8 @@
   </action>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
- <resources/>
+ <resources>
+  <include location="xmodel_gen.qrc"/>
+ </resources>
  <connections/>
 </ui>

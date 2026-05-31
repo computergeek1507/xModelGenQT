@@ -5,11 +5,15 @@
 #include "dxf/dxf_reader.h"
 #include "dxf/dxf_units.h"
 #include "dxf/hole_finder.h"
+#include "svg/svg_reader.h"
 
 #include <QBrush>
+#include <QCoreApplication>
+#include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGraphicsEllipseItem>
+#include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QGraphicsSimpleTextItem>
 #include <QInputDialog>
@@ -17,6 +21,8 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPen>
+#include <QProgressDialog>
+#include <QSettings>
 
 #include <spdlog/spdlog.h>
 
@@ -40,12 +46,16 @@ MainWindow::~MainWindow()
 
 void MainWindow::on_actionOpen_DXF_triggered()
 {
+    QSettings     settings;
+    QString const lastDir = settings.value( "paths/openDir" ).toString();
+
     QString const fileName = QFileDialog::getOpenFileName(
-        this, tr( "Open DXF" ), QString(), tr( "DXF files (*.dxf);;All files (*)" ) );
+        this, tr( "Open DXF" ), lastDir, tr( "DXF files (*.dxf);;All files (*)" ) );
     if( fileName.isEmpty() ) {
         return;  // user cancelled
     }
 
+    settings.setValue( "paths/openDir", QFileInfo( fileName ).absolutePath() );
     loadDxf( fileName );
 }
 
@@ -62,6 +72,7 @@ void MainWindow::loadDxf( QString const& fileName )
     }
 
     m_dxf_data = reader.moveData();
+    m_svgCircles.clear();  // DXF is now the active source
     m_modelName = QFileInfo( fileName ).baseName().toStdString();
     spdlog::debug( "DXF model-space: {} circles, {} arcs, {} polylines, {} lines, {} inserts; "
                    "{} blocks (units code {})",
@@ -69,6 +80,41 @@ void MainWindow::loadDxf( QString const& fileName )
                    m_dxf_data->model.polylines.size(), m_dxf_data->model.lines.size(),
                    m_dxf_data->model.inserts.size(), m_dxf_data->blocks.size(),
                    m_dxf_data->insUnits );
+
+    detectHoles();
+}
+
+void MainWindow::on_actionOpen_SVG_triggered()
+{
+    QSettings     settings;
+    QString const lastDir = settings.value( "paths/openDir" ).toString();
+
+    QString const fileName = QFileDialog::getOpenFileName(
+        this, tr( "Open SVG" ), lastDir, tr( "SVG files (*.svg);;All files (*)" ) );
+    if( fileName.isEmpty() ) {
+        return;  // user cancelled
+    }
+
+    settings.setValue( "paths/openDir", QFileInfo( fileName ).absolutePath() );
+    loadSvg( fileName );
+}
+
+void MainWindow::loadSvg( QString const& fileName )
+{
+    spdlog::info( "Opening SVG: {}", fileName.toStdString() );
+
+    std::vector< svg_reader::Circle > circles = svg_reader::ReadCircles( fileName );
+    if( circles.empty() ) {
+        QMessageBox::warning(
+            this, tr( "Open SVG" ),
+            tr( "No <circle>/<ellipse> elements were found in \"%1\"." ).arg( fileName ) );
+        return;
+    }
+
+    m_svgCircles = std::move( circles );
+    m_dxf_data.reset();  // SVG is now the active source
+    m_modelName = QFileInfo( fileName ).baseName().toStdString();
+    spdlog::debug( "SVG: {} circle candidates", m_svgCircles.size() );
 
     detectHoles();
 }
@@ -90,39 +136,58 @@ double MainWindow::mmToDrawingUnits( double mm ) const
 
 void MainWindow::detectHoles()
 {
-    if( !m_dxf_data ) {
-        return;
-    }
-
     // The target hole diameter is a real-world size (mm) from the spin box, plus a
-    // fixed +/-0.5mm band on the radius (i.e. +/-1mm on the diameter). Detection runs
-    // in the file's drawing units; block references are expanded to world space.
-    double const holeDiameterMm  = ui->doubleSpinBox_holeDia->value();
-    double const holeDiameter    = mmToDrawingUnits( holeDiameterMm );
-    double const radiusTolerance = mmToDrawingUnits( 0.5 );
+    // fixed +/-0.5mm band on the radius. Node coordinates are stored in millimetres.
+    double const holeDiameterMm = ui->doubleSpinBox_holeDia->value();
 
-    std::vector< hole_finder::Hole > const holes =
-        hole_finder::FindHoles( *m_dxf_data, holeDiameter, radiusTolerance );
+    std::vector< std::pair< double, double > > centresMm;  // hole centres, node-mm
+    int rawCount = 0;
 
-    // Node coordinates are stored in millimetres (Node uses double coordinates).
-    double mmPerUnit = dxf_units::MillimetersPerUnit( m_dxf_data->insUnits );
-    if( mmPerUnit <= 0.0 ) {
-        mmPerUnit = 1.0;  // unknown units: treat the drawing as millimetres
+    if( m_dxf_data ) {
+        // Detection runs in the file's drawing units; blocks are expanded to world.
+        double const holeDiameter    = mmToDrawingUnits( holeDiameterMm );
+        double const radiusTolerance = mmToDrawingUnits( 0.5 );
+        std::vector< hole_finder::Hole > const holes =
+            hole_finder::FindHoles( *m_dxf_data, holeDiameter, radiusTolerance );
+
+        double mmPerUnit = dxf_units::MillimetersPerUnit( m_dxf_data->insUnits );
+        if( mmPerUnit <= 0.0 ) {
+            mmPerUnit = 1.0;  // unknown units: treat the drawing as millimetres
+        }
+        rawCount = static_cast< int >( holes.size() );
+        for( auto const& hole : holes ) {
+            centresMm.emplace_back( hole.x * mmPerUnit, hole.y * mmPerUnit );
+        }
+    } else if( !m_svgCircles.empty() ) {
+        // SVG circles are already in node-mm; match by radius like the DXF flow.
+        double const targetRadiusMm = holeDiameterMm * 0.5;
+        rawCount = static_cast< int >( m_svgCircles.size() );
+        for( svg_reader::Circle const& c : m_svgCircles ) {
+            if( std::abs( c.dia * 0.5 - targetRadiusMm ) <= 0.5 ) {
+                centresMm.emplace_back( c.x, c.y );
+            }
+        }
+    } else {
+        return;  // nothing loaded
     }
 
     auto model = std::make_unique< Model >();
     model->SetName( m_modelName );
-    for( auto const& hole : holes ) {
-        model->AddNode(
-            Node( hole.x * mmPerUnit, hole.y * mmPerUnit, holeDiameterMm * 0.5 ) );
+    for( auto const& [ x, y ] : centresMm ) {
+        model->AddNode( Node( x, y, holeDiameterMm * 0.5 ) );
     }
 
     spdlog::info( "Found {} hole candidates ({} unique nodes) for {}mm holes",
-                  holes.size(), model->GetNodeCount(), holeDiameterMm );
+                  rawCount, model->GetNodeCount(), holeDiameterMm );
 
     m_model          = std::move( model );
     m_startNodeIndex = -1;          // selection no longer valid for the new node set
     m_nodeRadius     = holeDiameterMm * 0.5;  // marker radius in mm (node coords are mm)
+    m_selection.clear();            // node indices no longer valid for the new set
+    m_strokeAdded.clear();
+    if( ui->pushButton_wireSection ) {
+        ui->pushButton_wireSection->setEnabled( false );
+    }
 
     refreshModelView();
 
@@ -145,10 +210,11 @@ void MainWindow::on_doubleSpinBox_holeDia_editingFinished()
     }
 }
 
-void MainWindow::refreshModelView()
+void MainWindow::refreshModelView( bool fitView )
 {
     ui->listWidgetNodes->clear();
     m_nodeItems.clear();
+    m_selRect = nullptr;  // any live rubber-band is about to be cleared with the scene
 
     if( !m_scene ) {
         m_scene = std::make_unique< QGraphicsScene >();
@@ -196,16 +262,18 @@ void MainWindow::refreshModelView()
         }
     }
 
-    updateNodeColors();
+    updateNodeColorsAndSelection();
 
     if( !m_scene->items().isEmpty() ) {
         QRectF const bounds = m_scene->itemsBoundingRect();
         m_scene->setSceneRect( bounds );
-        ui->graphicsViewDraw->fitInView( bounds, Qt::KeepAspectRatio );
+        if( fitView ) {
+            ui->graphicsViewDraw->fitInView( bounds, Qt::KeepAspectRatio );
+        }
     }
 }
 
-void MainWindow::updateNodeColors()
+void MainWindow::updateNodeColorsAndSelection()
 {
     if( !m_model ) {
         return;
@@ -221,8 +289,13 @@ void MainWindow::updateNodeColors()
         if( nodes[ i ].IsWired() ) {
             color = QColor( 90, 170, 255 );   // wired
         }
-        if( static_cast< int >( i ) == m_startNodeIndex ) {
+        // The start marker only matters while picking it for whole-model Auto Wire.
+        if( m_mode == InteractMode::PickStart
+            && static_cast< int >( i ) == m_startNodeIndex ) {
             color = QColor( 40, 200, 80 );    // selected start node
+        }
+        if( m_selection.count( static_cast< int >( i ) ) ) {
+            color = QColor( 255, 150, 40 );   // section selection
         }
         m_nodeItems[ i ]->setBrush( QBrush( color ) );
     }
@@ -257,22 +330,117 @@ double MainWindow::nodeDisplayRadius() const
 
 bool MainWindow::eventFilter( QObject* watched, QEvent* event )
 {
-    if( watched == ui->graphicsViewDraw->viewport() && m_model && !m_nodeItems.empty()
-        && ( event->type() == QEvent::MouseButtonPress
-             || event->type() == QEvent::MouseMove ) ) {
-        auto* mouse = static_cast< QMouseEvent* >( event );
-        if( mouse->buttons() & Qt::LeftButton ) {
-            QPointF const scenePos = ui->graphicsViewDraw->mapToScene( mouse->pos() );
-            int const     nearest  = nearestNodeIndex( scenePos.x(), scenePos.y() );
+    if( watched != ui->graphicsViewDraw->viewport() || !m_model || m_nodeItems.empty() ) {
+        return QMainWindow::eventFilter( watched, event );
+    }
+
+    QEvent::Type const type = event->type();
+    if( type != QEvent::MouseButtonPress && type != QEvent::MouseMove
+        && type != QEvent::MouseButtonRelease ) {
+        return QMainWindow::eventFilter( watched, event );
+    }
+
+    auto* mouse = static_cast< QMouseEvent* >( event );
+    auto  toScene = [ & ]( QPoint const& p ) { return ui->graphicsViewDraw->mapToScene( p ); };
+
+    // ---- Pick start: click/drag sets the whole-model Auto Wire start node. -------
+    if( m_mode == InteractMode::PickStart ) {
+        if( ( type == QEvent::MouseButtonPress || type == QEvent::MouseMove )
+            && ( mouse->buttons() & Qt::LeftButton ) ) {
+            QPointF const sp = toScene( mouse->pos() );
+            int const nearest = nearestNodeIndex( sp.x(), sp.y() );
             if( nearest >= 0 && nearest != m_startNodeIndex ) {
                 m_startNodeIndex = nearest;
-                updateNodeColors();
+                updateNodeColorsAndSelection();
                 Node const& n = m_model->GetNodes().at( nearest );
-                statusBar()->showMessage(
-                    tr( "Start node: (%1, %2)" ).arg( n.X ).arg( n.Y ) );
+                statusBar()->showMessage( tr( "Start node: (%1, %2)" ).arg( n.X ).arg( n.Y ) );
             }
         }
+        return QMainWindow::eventFilter( watched, event );
     }
+
+    // ---- Manual wire: click a node, or drag across nodes, to wire them by hand. --
+    if( m_mode == InteractMode::Manual ) {
+        if( type == QEvent::MouseButtonPress && ( mouse->button() == Qt::RightButton ) ) {
+            undoLastWire();
+            return true;
+        }
+        if( type == QEvent::MouseButtonPress && ( mouse->button() == Qt::LeftButton ) ) {
+            m_dragging = true;
+            m_strokeAdded.clear();
+            QPointF const sp = toScene( mouse->pos() );
+            manualAddNode( nearestNodeIndex( sp.x(), sp.y() ) );
+            return true;
+        }
+        if( type == QEvent::MouseMove && m_dragging && ( mouse->buttons() & Qt::LeftButton ) ) {
+            QPointF const sp = toScene( mouse->pos() );
+            int const idx = nearestNodeIndex( sp.x(), sp.y() );
+            if( idx >= 0 && !m_strokeAdded.count( idx ) ) {
+                manualAddNode( idx );
+            }
+            return true;
+        }
+        if( type == QEvent::MouseButtonRelease ) {
+            m_dragging = false;
+        }
+        return QMainWindow::eventFilter( watched, event );
+    }
+
+    // ---- Select section: rubber-band a box, or click nodes, then Wire Section. ---
+    if( m_mode == InteractMode::Section ) {
+        if( type == QEvent::MouseButtonPress && ( mouse->button() == Qt::LeftButton ) ) {
+            m_dragging = true;
+            m_pressViewPos = mouse->pos();
+            if( !m_selRect ) {
+                QPen pen( QColor( 255, 150, 40 ) );
+                pen.setStyle( Qt::DashLine );
+                pen.setCosmetic( true );  // constant on-screen width regardless of zoom
+                m_selRect = m_scene->addRect( QRectF(), pen, QBrush( QColor( 255, 150, 40, 40 ) ) );
+                m_selRect->setZValue( 2.0 );
+            }
+            m_selRect->setRect( QRectF( toScene( m_pressViewPos ), toScene( m_pressViewPos ) ) );
+            return true;
+        }
+        if( type == QEvent::MouseMove && m_dragging && m_selRect ) {
+            m_selRect->setRect(
+                QRectF( toScene( m_pressViewPos ), toScene( mouse->pos() ) ).normalized() );
+            return true;
+        }
+        if( type == QEvent::MouseButtonRelease && m_dragging ) {
+            m_dragging = false;
+            bool const additive = ( mouse->modifiers() & Qt::ControlModifier ) != 0;
+            bool const isClick =
+                ( mouse->pos() - m_pressViewPos ).manhattanLength() < 4;  // no real drag
+            if( m_selRect ) {
+                m_scene->removeItem( m_selRect );
+                delete m_selRect;
+                m_selRect = nullptr;
+            }
+            if( isClick ) {
+                // Toggle the single nearest node in/out of the selection.
+                QPointF const sp = toScene( mouse->pos() );
+                int const idx = nearestNodeIndex( sp.x(), sp.y() );
+                if( idx >= 0 ) {
+                    if( m_selection.count( idx ) ) {
+                        m_selection.erase( idx );
+                    } else {
+                        m_selection.insert( idx );
+                    }
+                }
+            } else {
+                applyRectSelection(
+                    QRectF( toScene( m_pressViewPos ), toScene( mouse->pos() ) ).normalized(),
+                    additive );
+            }
+            updateNodeColorsAndSelection();
+            ui->pushButton_wireSection->setEnabled( !m_selection.empty() );
+            statusBar()->showMessage(
+                tr( "%1 node(s) selected." ).arg( static_cast< int >( m_selection.size() ) ) );
+            return true;
+        }
+        return QMainWindow::eventFilter( watched, event );
+    }
+
     return QMainWindow::eventFilter( watched, event );
 }
 
@@ -300,13 +468,20 @@ void MainWindow::on_actionExport_xModel_triggered()
         return;
     }
 
+    QSettings     settings;
+    QString const defaultName = QString::fromStdString( m_model->GetName() ) + ".xmodel";
+    QString const lastDir     = settings.value( "paths/saveDir" ).toString();
+    QString const startPath =
+        lastDir.isEmpty() ? defaultName : QDir( lastDir ).filePath( defaultName );
+
     QString fileName = QFileDialog::getSaveFileName(
-        this, tr( "Export xModel" ),
-        QString::fromStdString( m_model->GetName() ) + ".xmodel",
+        this, tr( "Export xModel" ), startPath,
         tr( "xLights model (*.xmodel);;All files (*)" ) );
     if( fileName.isEmpty() ) {
         return;  // user cancelled
     }
+
+    settings.setValue( "paths/saveDir", QFileInfo( fileName ).absolutePath() );
 
     if( m_model->ExportModel( fileName.toStdString() ) ) {
         spdlog::info( "Exported xmodel: {}", fileName.toStdString() );
@@ -372,35 +547,280 @@ void MainWindow::on_pushButton_autoWire_clicked()
     runAutoWire( ui->spinBox_wireSize->value() );
 }
 
-int MainWindow::wireFrom( int startIndex, double wireGapMm )
+AutoWire::Strategy MainWindow::selectedStrategy() const
+{
+    // Combo index 1 == Warnsdorff (see res/mainwindow.ui); 0/anything else == nearest.
+    return ui->comboBox_wireStrategy->currentIndex() == 1 ? AutoWire::Strategy::Warnsdorff
+                                                          : AutoWire::Strategy::NearestFirst;
+}
+
+std::vector< int > MainWindow::runSearch( Model& model, double wireGapMm, double startX,
+                                          double startY, AutoWire::Strategy strategy )
+{
+    int const totalNodes = static_cast< int >( model.GetNodeCount() );
+
+    // The search can run for millions of backtracking steps, which would freeze the
+    // UI. Show a modal progress dialog with a Cancel button and let AutoWire pump it
+    // via its progress callback; cancelling keeps the best partial path found so far.
+    QProgressDialog progress( tr( "Auto-wiring nodes..." ), tr( "Cancel" ), 0, totalNodes, this );
+    progress.setWindowTitle( tr( "AutoWire" ) );
+    progress.setWindowModality( Qt::WindowModal );
+    progress.setMinimumDuration( 250 );  // don't flash for instant solves
+
+    // Capture the cancel via the signal into a flag rather than polling
+    // wasCanceled(): the signal fires the moment the button is clicked, and the
+    // flag can't be cleared by setValue()/auto-reset side effects mid-search.
+    bool canceled = false;
+    connect( &progress, &QProgressDialog::canceled, this, [ &canceled ]() { canceled = true; } );
+
+    AutoWire autoWire( &model, wireGapMm );
+    autoWire.SetStrategy( strategy );
+    autoWire.SetProgressCallback(
+        [ &progress, &canceled ]( int bestLen, int total, long long steps ) -> bool {
+            if( progress.maximum() != total ) {
+                progress.setMaximum( total );
+            }
+            progress.setValue( bestLen );
+            progress.setLabelText(
+                MainWindow::tr( "Wired %1 of %2 nodes (%3 steps)..." )
+                    .arg( bestLen )
+                    .arg( total )
+                    .arg( steps ) );
+            // Pump the event loop so the Cancel click is delivered and serviced even
+            // while the longest-path count sits on a plateau.
+            QCoreApplication::processEvents();
+            return !canceled;
+        } );
+
+    autoWire.WireModel( startX, startY );
+    progress.reset();
+    return autoWire.GetIndexes();
+}
+
+int MainWindow::wireFrom( int startIndex, double wireGapMm, AutoWire::Strategy strategy )
 {
     Node const& start = m_model->GetNodes().at( startIndex );
 
-    spdlog::info( "AutoWire: gap {}mm, start ({}, {})", wireGapMm, start.X, start.Y );
+    spdlog::info( "AutoWire: gap {}mm, start ({}, {}), strategy {}", wireGapMm, start.X, start.Y,
+                  strategy == AutoWire::Strategy::Warnsdorff ? "Warnsdorff" : "NearestFirst" );
 
-    AutoWire autoWire( m_model.get(), wireGapMm );
-    autoWire.WireModel( start.X, start.Y );
+    std::vector< int > const order =
+        runSearch( *m_model, wireGapMm, start.X, start.Y, strategy );
 
-    // Write the discovered order back as 1-based node numbers.
+    // Whole-model Auto Wire replaces any existing wiring and numbers 1..N.
     m_model->ClearWiring();
     int nodeNumber = 1;
-    for( int index : autoWire.GetIndexes() ) {
+    for( int index : order ) {
         m_model->SetNodeNumber( index, nodeNumber++ );
     }
 
     m_startNodeIndex = startIndex;
+    m_selection.clear();
     refreshModelView();
 
-    int const wiredCount = static_cast< int >( autoWire.GetIndexes().size() );
-    spdlog::info( "AutoWire wired {}/{} nodes (complete: {})",
-                  wiredCount, m_model->GetNodeCount(), autoWire.GetWorked() );
+    int const wiredCount = static_cast< int >( order.size() );
+    spdlog::info( "AutoWire wired {}/{} nodes", wiredCount, m_model->GetNodeCount() );
     return wiredCount;
+}
+
+int MainWindow::nextNodeNumber() const
+{
+    int maxNum = 0;
+    if( m_model ) {
+        for( Node const& n : m_model->GetNodes() ) {
+            maxNum = std::max( maxNum, n.NodeNumber );
+        }
+    }
+    return maxNum + 1;
+}
+
+void MainWindow::manualAddNode( int idx )
+{
+    if( !m_model || idx < 0 || idx >= static_cast< int >( m_model->GetNodeCount() ) ) {
+        return;
+    }
+    Node& n = m_model->GetEditNodes().at( idx );
+    if( n.IsWired() ) {
+        return;  // already part of the run
+    }
+    n.NodeNumber = nextNodeNumber();
+    m_strokeAdded.insert( idx );
+    refreshModelView( false );  // redraw labels/colours, keep the current zoom/pan
+    statusBar()->showMessage( tr( "Wired node %1 (manual)." ).arg( n.NodeNumber ) );
+}
+
+void MainWindow::undoLastWire()
+{
+    if( !m_model ) {
+        return;
+    }
+    std::vector< Node >& nodes = m_model->GetEditNodes();
+    int maxNum = 0, idx = -1;
+    for( int i = 0; i < static_cast< int >( nodes.size() ); ++i ) {
+        if( nodes[ i ].NodeNumber > maxNum ) {
+            maxNum = nodes[ i ].NodeNumber;
+            idx    = i;
+        }
+    }
+    if( idx < 0 ) {
+        statusBar()->showMessage( tr( "Nothing to undo." ) );
+        return;
+    }
+    nodes[ idx ].NodeNumber = 0;
+    m_strokeAdded.erase( idx );
+    refreshModelView( false );
+    statusBar()->showMessage( tr( "Removed node %1." ).arg( maxNum ) );
+}
+
+void MainWindow::applyRectSelection( QRectF const& sceneRect, bool additive )
+{
+    if( !m_model ) {
+        return;
+    }
+    if( !additive ) {
+        m_selection.clear();
+    }
+    std::vector< Node > const& nodes = m_model->GetNodes();
+    for( int i = 0; i < static_cast< int >( nodes.size() ); ++i ) {
+        // Markers are drawn at (X, -Y) in scene space.
+        if( sceneRect.contains( nodes[ i ].X, -nodes[ i ].Y ) ) {
+            m_selection.insert( i );
+        }
+    }
+}
+
+void MainWindow::wireSection()
+{
+    if( !m_model || m_selection.empty() ) {
+        return;
+    }
+
+    std::vector< Node > const& nodes = m_model->GetNodes();
+
+    // Wire only the still-unwired nodes in the selection.
+    std::vector< int > sel;
+    for( int idx : m_selection ) {
+        if( idx >= 0 && idx < static_cast< int >( nodes.size() ) && !nodes[ idx ].IsWired() ) {
+            sel.push_back( idx );
+        }
+    }
+    if( sel.empty() ) {
+        QMessageBox::information( this, tr( "Wire Section" ),
+                                 tr( "All selected nodes are already wired." ) );
+        return;
+    }
+
+    // Pick the section start: the selected node nearest the last-wired node, so the
+    // new run continues smoothly from existing wiring; otherwise the first selected.
+    int startSel = sel.front();
+    int lastNum = 0, lastIdx = -1;
+    for( int i = 0; i < static_cast< int >( nodes.size() ); ++i ) {
+        if( nodes[ i ].NodeNumber > lastNum ) {
+            lastNum = nodes[ i ].NodeNumber;
+            lastIdx = i;
+        }
+    }
+    if( lastIdx >= 0 ) {
+        double best = -1.0;
+        for( int idx : sel ) {
+            double const dx = nodes[ idx ].X - nodes[ lastIdx ].X;
+            double const dy = nodes[ idx ].Y - nodes[ lastIdx ].Y;
+            double const d  = dx * dx + dy * dy;
+            if( best < 0.0 || d < best ) {
+                best     = d;
+                startSel = idx;
+            }
+        }
+    }
+
+    // Build a temporary model of just the selected nodes and remember the mapping
+    // back to real indices, so AutoWire can run over the subset in isolation.
+    Model              sub;
+    std::vector< int > realIndex;  // temp index -> real model index
+    realIndex.reserve( sel.size() );
+    for( int idx : sel ) {
+        sub.AddNode( nodes[ idx ] );
+        realIndex.push_back( idx );
+    }
+
+    double const wireGapMm  = ui->spinBox_wireSize->value();
+    Node const&  startNode  = nodes[ startSel ];
+    std::vector< int > const order =
+        runSearch( sub, wireGapMm, startNode.X, startNode.Y, selectedStrategy() );
+
+    // Number the section on from the highest existing wire number.
+    int num = nextNodeNumber();
+    for( int subIdx : order ) {
+        if( subIdx >= 0 && subIdx < static_cast< int >( realIndex.size() ) ) {
+            m_model->SetNodeNumber( realIndex[ subIdx ], num++ );
+        }
+    }
+
+    int const wired = static_cast< int >( order.size() );
+    spdlog::info( "Wire Section: {}/{} selected nodes wired", wired, sel.size() );
+
+    m_selection.clear();
+    ui->pushButton_wireSection->setEnabled( false );
+    refreshModelView( false );
+
+    if( wired == static_cast< int >( sel.size() ) ) {
+        statusBar()->showMessage( tr( "Wired section of %1 node(s)." ).arg( wired ) );
+    } else {
+        QMessageBox::warning(
+            this, tr( "Wire Section" ),
+            tr( "Only %1 of %2 selected nodes could be wired at this gap.\n"
+                "Increase the wire gap, or try the Warnsdorff method." )
+                .arg( wired )
+                .arg( static_cast< int >( sel.size() ) ) );
+    }
+}
+
+void MainWindow::on_pushButton_wireSection_clicked()
+{
+    wireSection();
+}
+
+void MainWindow::on_pushButton_undoWire_clicked()
+{
+    undoLastWire();
+}
+
+void MainWindow::on_comboBox_interactMode_currentIndexChanged( int index )
+{
+    switch( index ) {
+        case 1:  m_mode = InteractMode::Manual;  break;
+        case 2:  m_mode = InteractMode::Section; break;
+        default: m_mode = InteractMode::PickStart; break;
+    }
+
+    // Reset transient interaction state when switching modes.
+    m_dragging = false;
+    m_strokeAdded.clear();
+    if( m_selRect && m_scene ) {
+        m_scene->removeItem( m_selRect );
+        delete m_selRect;
+    }
+    m_selRect = nullptr;
+
+    if( m_mode != InteractMode::Section ) {
+        m_selection.clear();
+        ui->pushButton_wireSection->setEnabled( false );
+    } else {
+        ui->pushButton_wireSection->setEnabled( !m_selection.empty() );
+    }
+
+    if( !m_nodeItems.empty() ) {
+        updateNodeColorsAndSelection();
+    }
+
+    char const* const names[] = { "Pick start", "Manual wire", "Select section" };
+    statusBar()->showMessage( tr( "%1 mode." ).arg( names[ std::clamp( index, 0, 2 ) ] ) );
 }
 
 void MainWindow::autoWireFromFirst( double wireGapMm )
 {
     if( m_model && m_model->GetNodeCount() > 0 ) {
-        wireFrom( 0, wireGapMm );
+        wireFrom( 0, wireGapMm, selectedStrategy() );
     }
 }
 
@@ -429,12 +849,24 @@ void MainWindow::runAutoWire( double wireGapMm )
         return;
     }
 
-    int const wiredCount = wireFrom( m_startNodeIndex, wireGapMm );
+    AutoWire::Strategy const strategy = selectedStrategy();
+    int const wiredCount = wireFrom( m_startNodeIndex, wireGapMm, strategy );
     int const totalCount = static_cast< int >( m_model->GetNodeCount() );
 
     if( wiredCount == totalCount ) {
         QMessageBox::information( this, tr( "AutoWire" ),
                                  tr( "Wired all %1 nodes." ).arg( totalCount ) );
+    } else if( strategy == AutoWire::Strategy::NearestFirst ) {
+        // Nearest-first can stall in a greedy trap even when a complete path exists.
+        // Point the user at the Warnsdorff method, which completes from almost any start.
+        QMessageBox::warning(
+            this, tr( "AutoWire" ),
+            tr( "Nearest-first only wired %1 of %2 nodes before giving up.\n\n"
+                "It can get stuck from some start nodes even when a full path exists. "
+                "Try switching Method to \"Warnsdorff\", increasing the wire gap, or "
+                "choosing a different start node." )
+                .arg( wiredCount )
+                .arg( totalCount ) );
     } else {
         QMessageBox::warning(
             this, tr( "AutoWire" ),
