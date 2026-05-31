@@ -13,8 +13,11 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGraphicsEllipseItem>
+#include <QGraphicsPathItem>
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
+#include <QPainterPath>
+#include <QPolygonF>
 #include <QGraphicsSimpleTextItem>
 #include <QInputDialog>
 #include <QListWidget>
@@ -261,7 +264,9 @@ void MainWindow::refreshModelView( bool fitView )
 {
     ui->listWidgetNodes->clear();
     m_nodeItems.clear();
-    m_selRect = nullptr;  // any live rubber-band is about to be cleared with the scene
+    // any live rubber-band / lasso is about to be cleared with the scene
+    m_selRect   = nullptr;
+    m_lassoItem = nullptr;
 
     if( !m_scene ) {
         m_scene = std::make_unique< QGraphicsScene >();
@@ -479,6 +484,84 @@ bool MainWindow::eventFilter( QObject* watched, QEvent* event )
                     QRectF( toScene( m_pressViewPos ), toScene( mouse->pos() ) ).normalized(),
                     additive );
             }
+            updateNodeColorsAndSelection();
+            ui->pushButton_wireSection->setEnabled( !m_selection.empty() );
+            statusBar()->showMessage(
+                tr( "%1 node(s) selected." ).arg( static_cast< int >( m_selection.size() ) ) );
+            return true;
+        }
+        return QMainWindow::eventFilter( watched, event );
+    }
+
+    // ---- Lasso select: draw a freeform loop around nodes, then Wire Section. -----
+    if( m_mode == InteractMode::Lasso ) {
+        auto rebuildLassoPath = [ & ]() {
+            QPainterPath path;
+            if( !m_lassoPoints.empty() ) {
+                path.moveTo( m_lassoPoints.front() );
+                for( std::size_t i = 1; i < m_lassoPoints.size(); ++i ) {
+                    path.lineTo( m_lassoPoints[ i ] );
+                }
+                path.closeSubpath();
+            }
+            m_lassoItem->setPath( path );
+        };
+
+        if( type == QEvent::MouseButtonPress && ( mouse->button() == Qt::LeftButton ) ) {
+            m_dragging     = true;
+            m_pressViewPos = mouse->pos();
+            m_lassoPoints.clear();
+            m_lassoPoints.push_back( toScene( mouse->pos() ) );
+            if( !m_lassoItem ) {
+                QPen pen( QColor( 255, 150, 40 ) );
+                pen.setCosmetic( true );
+                m_lassoItem = m_scene->addPath( QPainterPath(), pen,
+                                                QBrush( QColor( 255, 150, 40, 40 ) ) );
+                m_lassoItem->setZValue( 2.0 );
+            }
+            rebuildLassoPath();
+            return true;
+        }
+        if( type == QEvent::MouseMove && m_dragging && m_lassoItem ) {
+            m_lassoPoints.push_back( toScene( mouse->pos() ) );
+            rebuildLassoPath();
+            return true;
+        }
+        if( type == QEvent::MouseButtonRelease && m_dragging ) {
+            m_dragging = false;
+            bool const isClick = ( mouse->pos() - m_pressViewPos ).manhattanLength() < 4;
+            if( m_lassoItem ) {
+                m_scene->removeItem( m_lassoItem );
+                delete m_lassoItem;
+                m_lassoItem = nullptr;
+            }
+            if( isClick || m_lassoPoints.size() < 3 ) {
+                // Treat a tap as toggling the single nearest node.
+                QPointF const sp = toScene( mouse->pos() );
+                int const idx = nearestNodeIndex( sp.x(), sp.y() );
+                if( idx >= 0 ) {
+                    if( m_selection.count( idx ) ) {
+                        m_selection.erase( idx );
+                    } else {
+                        m_selection.insert( idx );
+                    }
+                }
+            } else {
+                // Select every node enclosed by the freeform loop.
+                QPolygonF poly;
+                for( QPointF const& p : m_lassoPoints ) {
+                    poly << p;
+                }
+                std::vector< Node > const& nodes = m_model->GetNodes();
+                m_selection.clear();
+                for( int i = 0; i < static_cast< int >( nodes.size() ); ++i ) {
+                    if( poly.containsPoint( QPointF( nodes[ i ].X, -nodes[ i ].Y ),
+                                            Qt::OddEvenFill ) ) {
+                        m_selection.insert( i );
+                    }
+                }
+            }
+            m_lassoPoints.clear();
             updateNodeColorsAndSelection();
             ui->pushButton_wireSection->setEnabled( !m_selection.empty() );
             statusBar()->showMessage(
@@ -837,19 +920,26 @@ void MainWindow::on_comboBox_interactMode_currentIndexChanged( int index )
     switch( index ) {
         case 1:  m_mode = InteractMode::Manual;  break;
         case 2:  m_mode = InteractMode::Section; break;
+        case 3:  m_mode = InteractMode::Lasso;   break;
         default: m_mode = InteractMode::PickStart; break;
     }
 
     // Reset transient interaction state when switching modes.
     m_dragging = false;
     m_strokeAdded.clear();
+    m_lassoPoints.clear();
     if( m_selRect && m_scene ) {
         m_scene->removeItem( m_selRect );
         delete m_selRect;
     }
     m_selRect = nullptr;
+    if( m_lassoItem && m_scene ) {
+        m_scene->removeItem( m_lassoItem );
+        delete m_lassoItem;
+    }
+    m_lassoItem = nullptr;
 
-    if( m_mode != InteractMode::Section ) {
+    if( !isSelectMode() ) {
         m_selection.clear();
         ui->pushButton_wireSection->setEnabled( false );
     } else {
@@ -860,8 +950,9 @@ void MainWindow::on_comboBox_interactMode_currentIndexChanged( int index )
         updateNodeColorsAndSelection();
     }
 
-    char const* const names[] = { "Pick start", "Manual wire", "Select section" };
-    statusBar()->showMessage( tr( "%1 mode." ).arg( names[ std::clamp( index, 0, 2 ) ] ) );
+    char const* const names[] = { "Pick start", "Manual wire", "Select section",
+                                  "Lasso select" };
+    statusBar()->showMessage( tr( "%1 mode." ).arg( names[ std::clamp( index, 0, 3 ) ] ) );
 }
 
 void MainWindow::autoWireFromFirst( double wireGapMm )

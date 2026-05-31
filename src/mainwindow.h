@@ -6,6 +6,7 @@
 #include "svg/svg_reader.h"
 
 #include <QMainWindow>
+#include <QPointF>
 
 #include <memory>
 #include <set>
@@ -19,6 +20,7 @@ class QEvent;
 class QGraphicsScene;
 class QGraphicsEllipseItem;
 class QGraphicsRectItem;
+class QGraphicsPathItem;
 
 class MainWindow : public QMainWindow
 {
@@ -100,7 +102,13 @@ private:
                                   double startY, AutoWire::Strategy strategy );
 
     // --- manual + section wiring -----------------------------------------------
-    enum class InteractMode { PickStart, Manual, Section };
+    enum class InteractMode { PickStart, Manual, Section, Lasso };
+
+    // Modes that build a node selection for Wire Section.
+    bool isSelectMode() const
+    {
+        return m_mode == InteractMode::Section || m_mode == InteractMode::Lasso;
+    }
 
     // Next 1-based wire number to assign (highest existing + 1), so manual picks and
     // wired sections chain into one continuous run.
@@ -142,6 +150,8 @@ private:
     bool               m_dragging{ false };     // a press-drag is in progress
     QPoint             m_pressViewPos;          // viewport pos where the press began
     QGraphicsRectItem* m_selRect{ nullptr };    // live rubber-band (owned by the scene)
+    std::vector< QPointF > m_lassoPoints;       // freeform lasso path, scene coords
+    QGraphicsPathItem* m_lassoItem{ nullptr };  // live lasso outline (owned by the scene)
 };
 
 

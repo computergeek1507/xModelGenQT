@@ -223,7 +223,7 @@
       <item>
        <widget class="QComboBox" name="comboBox_interactMode">
         <property name="toolTip">
-         <string>Pick start: click a node to set the Auto Wire start. Manual wire: click or drag across nodes to wire them by hand. Select section: drag a box (or click nodes) to pick a group, then Wire Section.</string>
+         <string>Pick start: click a node to set the Auto Wire start. Manual wire: click or drag across nodes to wire them by hand. Select section: drag a box (or click nodes) to pick a group. Lasso select: draw a freeform loop around nodes. Then Wire Section.</string>
         </property>
         <item>
          <property name="text">
@@ -238,6 +238,11 @@
         <item>
          <property name="text">
           <string>Select section</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Lasso select</string>
          </property>
         </item>
        </widget>
