@@ -163,16 +163,40 @@ void MainWindow::detectHoles()
     double const holeDiameterMm = ui->doubleSpinBox_holeDia->value();
 
     std::vector< std::pair< double, double > > centresMm;  // hole centres, node-mm
-    int rawCount = 0;
+    int     rawCount = 0;
+    QString unitNote;  // appended to the status when units were auto-detected
 
     if( m_dxf_data ) {
         // Detection runs in the file's drawing units; blocks are expanded to world.
-        double const holeDiameter    = mmToDrawingUnits( holeDiameterMm );
-        double const radiusTolerance = mmToDrawingUnits( 0.5 );
-        std::vector< hole_finder::Hole > const holes =
-            hole_finder::FindHoles( *m_dxf_data, holeDiameter, radiusTolerance );
+        bool const autoUnits = ui->comboBox_units->currentIndex() == 0;
 
-        double mmPerUnit = dxf_units::MillimetersPerUnit( effectiveInsUnits() );
+        std::vector< hole_finder::Hole > holes;
+        int chosenUnit;
+        if( autoUnits && m_dxf_data->insUnits == dxf_units::Unitless ) {
+            // Unitless + Auto: the units are unknown, so try the common candidates
+            // and keep whichever finds the most holes near the target diameter.
+            chosenUnit = dxf_units::Millimeters;
+            holes = hole_finder::FindHoles( *m_dxf_data, holeDiameterMm, 0.5 );  // 1 unit = 1 mm
+            for( int cand : { dxf_units::Inches, dxf_units::Centimeters, dxf_units::Feet } ) {
+                double const mpu = dxf_units::MillimetersPerUnit( cand );
+                auto h = hole_finder::FindHoles( *m_dxf_data, holeDiameterMm / mpu, 0.5 / mpu );
+                if( h.size() > holes.size() ) {
+                    holes      = std::move( h );
+                    chosenUnit = cand;
+                }
+            }
+            if( !holes.empty() ) {
+                unitNote = tr( " (auto: %1)" )
+                               .arg( QString::fromLatin1( dxf_units::UnitName( chosenUnit ) ) );
+            }
+        } else {
+            chosenUnit = effectiveInsUnits();
+            double const mpu = dxf_units::MillimetersPerUnit( chosenUnit );
+            double const f   = mpu > 0.0 ? mpu : 1.0;
+            holes = hole_finder::FindHoles( *m_dxf_data, holeDiameterMm / f, 0.5 / f );
+        }
+
+        double mmPerUnit = dxf_units::MillimetersPerUnit( chosenUnit );
         if( mmPerUnit <= 0.0 ) {
             mmPerUnit = 1.0;  // unknown units: treat the drawing as millimetres
         }
@@ -215,12 +239,13 @@ void MainWindow::detectHoles()
 
     if( m_model->GetNodeCount() == 0 ) {
         statusBar()->showMessage(
-            tr( "No ~%1mm holes found. Adjust the hole diameter and try again." )
+            tr( "No ~%1mm holes found. If the file is unitless, try the Units dropdown." )
                 .arg( holeDiameterMm ) );
     } else {
-        statusBar()->showMessage( tr( "Found %1 holes (~%2mm)." )
+        statusBar()->showMessage( tr( "Found %1 holes (~%2mm)%3." )
                                       .arg( static_cast< int >( m_model->GetNodeCount() ) )
-                                      .arg( holeDiameterMm ) );
+                                      .arg( holeDiameterMm )
+                                      .arg( unitNote ) );
     }
 }
 

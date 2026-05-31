@@ -31,6 +31,21 @@ namespace dxf_units
         }
     }
 
+    // Short human-readable name for a $INSUNITS code (for status messages).
+    inline char const* UnitName( int insUnits )
+    {
+        switch( insUnits ) {
+            case Inches:      return "inches";
+            case Feet:        return "feet";
+            case Millimeters: return "mm";
+            case Centimeters: return "cm";
+            case Meters:      return "m";
+            case Microns:     return "microns";
+            case Decimeters:  return "dm";
+            default:          return "units";
+        }
+    }
+
     // Convert a real-world length (given in the units of realWorldUnitCode) into the
     // drawing units of a file whose units are drawingUnitCode. Returns a negative
     // value when the drawing units are unknown, so the caller can detect that case.
