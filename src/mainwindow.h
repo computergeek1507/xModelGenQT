@@ -152,6 +152,8 @@ private:
     QGraphicsRectItem* m_selRect{ nullptr };    // live rubber-band (owned by the scene)
     std::vector< QPointF > m_lassoPoints;       // freeform lasso path, scene coords
     QGraphicsPathItem* m_lassoItem{ nullptr };  // live lasso outline (owned by the scene)
+    bool   m_panning{ false };                  // a Shift-drag pan is in progress
+    QPoint m_panLastPos;                        // last viewport pos during a pan
 };
 
 

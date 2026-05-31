@@ -25,7 +25,9 @@
 #include <QMouseEvent>
 #include <QPen>
 #include <QProgressDialog>
+#include <QScrollBar>
 #include <QSettings>
+#include <QWheelEvent>
 
 #include <spdlog/spdlog.h>
 
@@ -382,7 +384,23 @@ double MainWindow::nodeDisplayRadius() const
 
 bool MainWindow::eventFilter( QObject* watched, QEvent* event )
 {
-    if( watched != ui->graphicsViewDraw->viewport() || !m_model || m_nodeItems.empty() ) {
+    if( watched != ui->graphicsViewDraw->viewport() ) {
+        return QMainWindow::eventFilter( watched, event );
+    }
+
+    // ---- Mouse wheel: zoom in/out toward the cursor. -----------------------------
+    if( event->type() == QEvent::Wheel && m_model ) {
+        auto* wheel = static_cast< QWheelEvent* >( event );
+        ui->graphicsViewDraw->setTransformationAnchor( QGraphicsView::AnchorUnderMouse );
+        double const factor = wheel->angleDelta().y() > 0 ? 1.15 : 1.0 / 1.15;
+        double const next   = ui->graphicsViewDraw->transform().m11() * factor;
+        if( next > 1e-6 && next < 1e6 ) {  // keep the zoom within sane bounds
+            ui->graphicsViewDraw->scale( factor, factor );
+        }
+        return true;
+    }
+
+    if( !m_model || m_nodeItems.empty() ) {
         return QMainWindow::eventFilter( watched, event );
     }
 
@@ -394,6 +412,34 @@ bool MainWindow::eventFilter( QObject* watched, QEvent* event )
 
     auto* mouse = static_cast< QMouseEvent* >( event );
     auto  toScene = [ & ]( QPoint const& p ) { return ui->graphicsViewDraw->mapToScene( p ); };
+
+    // ---- Pan the view with the middle button or Shift+left drag (takes precedence
+    //      over the interaction modes). ---------------------------------------------
+    bool const startPan =
+        type == QEvent::MouseButtonPress
+        && ( mouse->button() == Qt::MiddleButton
+             || ( mouse->button() == Qt::LeftButton
+                  && ( mouse->modifiers() & Qt::ShiftModifier ) ) );
+    if( startPan ) {
+        m_panning    = true;
+        m_panLastPos = mouse->pos();
+        ui->graphicsViewDraw->viewport()->setCursor( Qt::ClosedHandCursor );
+        return true;
+    }
+    if( type == QEvent::MouseMove && m_panning ) {
+        QPoint const delta = mouse->pos() - m_panLastPos;
+        m_panLastPos       = mouse->pos();
+        QScrollBar* const h = ui->graphicsViewDraw->horizontalScrollBar();
+        QScrollBar* const v = ui->graphicsViewDraw->verticalScrollBar();
+        h->setValue( h->value() - delta.x() );
+        v->setValue( v->value() - delta.y() );
+        return true;
+    }
+    if( type == QEvent::MouseButtonRelease && m_panning ) {
+        m_panning = false;
+        ui->graphicsViewDraw->viewport()->unsetCursor();
+        return true;
+    }
 
     // ---- Pick start: click/drag sets the whole-model Auto Wire start node. -------
     if( m_mode == InteractMode::PickStart ) {
